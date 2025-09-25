@@ -27,7 +27,7 @@ def generate_salt(length: int = 16) -> str:
     salt_str = base64.urlsafe_b64encode(salt_bytes).decode('utf-8')  # convert to string
     return salt_str
 
-def store_salt_and_priv(username: str, salt: str):
+def store_salt(username: str, salt: str):
     local_storage = {
         "salt": salt,        # already a string
     }
@@ -76,26 +76,42 @@ def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str):
     priv_blob_str = base64.urlsafe_b64encode(privkey_pem_encrypted).decode("utf-8")
     return priv_blob_str
 
+#--for encrypting using desired key
+def rsa_oaep_encrypt(public_key, data: bytes) -> bytes:
+
+    encrypted = public_key.encrypt(
+        data,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return encrypted
+
 async def register(ws, username: str, pubkey: str, password: str):
     user_id = generate_user_id(username)
     private_key, public_key = generate_rsa_keypair();     # we need key if it is a new user
     pubkey_str = serialize_publickey(public_key)
     priv_blob = serialize_privatekey(private_key, password)
-    pake_password = ""
+    salt = generate_salt()
+    hashed = hash_password(password, salt)
     payload = {
         "client": "cli-v1",
         "pubkey": pubkey_str,
         "privkey_store": priv_blob,
-        "pake_password":pake_password
+        "pake_password":hashed
     }
+    payload_bytes = json.dumps(payload).encode("utf-8") # finished packing up the payload and start encrypt it
+    encrypted = rsa_oaep_encrypt(server_pubkey, payload_bytes)
+    encrypted_b64 = base64.urlsafe_b64encode(encrypted).decode("utf-8")
     reg_msg = {
         "type": "USER_REGISTER",
         "from": user_id,
         "to": SERVER_ID,
          "ts":1700000003000,
         "payload": {
-            "client": "cli-v1",
-            "pubkey": pubkey
+            "data": encrypted_b64
         },
         "sig": ""
     }
