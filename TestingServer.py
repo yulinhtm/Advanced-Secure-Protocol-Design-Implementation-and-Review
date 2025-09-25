@@ -29,6 +29,7 @@ async def handle_connection(ws):
             print("Received:", msg)
             msg_type = msg.get("type")
 
+            # processing the recived data
             if msg_type == "USER_HELLO":
                 user_id = msg.get("from")
                 payload = msg.get("payload", {})

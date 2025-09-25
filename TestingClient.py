@@ -98,9 +98,10 @@ async def register(ws, username: str, pubkey: str, password: str):
     hashed = hash_password(password, salt)
     payload = {
         "client": "cli-v1",
+        "display_name": username,
         "pubkey": pubkey_str,
         "privkey_store": priv_blob,
-        "pake_password":hashed
+        "pake_password": hashed
     }
     payload_bytes = json.dumps(payload).encode("utf-8") # finished packing up the payload and start encrypt it
     encrypted = rsa_oaep_encrypt(server_pubkey, payload_bytes)
