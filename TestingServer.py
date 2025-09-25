@@ -1,3 +1,6 @@
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes, serialization
+import uuid
 import json
 import asyncio
 import websockets
@@ -5,7 +8,13 @@ import traceback
 
 local_users = {}
 user_locations = {}
-SERVER_ID = "server-1"
+Server_Name = "server-1"
+
+def generate_user_id(username: str) -> str:
+    # deterministic UUID based on username (UUID5)
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, username))
+
+SERVER_ID = generate_user_id(Server_Name)
 
 async def handle_connection(ws):
     print("ws is:", ws)
