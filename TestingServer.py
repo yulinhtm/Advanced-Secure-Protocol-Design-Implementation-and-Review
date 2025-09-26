@@ -33,6 +33,23 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 conn.commit()
+conn.close()
+
+# for database
+def add_user(user_id, pubkey, privkey_store, pake_password, meta=None, version=1):
+    conn = sqlite3.connect("user.db")
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO users (user_id, pubkey, privkey_store, pake_password, meta, version)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, pubkey, privkey_store, pake_password, json.dumps(meta) if meta else None, version))
+    conn.commit()
+    conn.close()
+    
+def user_exists(cur, user_id: str, display_name: str) -> bool:
+    cur.execute("SELECT 1 FROM users WHERE user_id = ? OR json_extract(meta, '$.display_name') = ?", 
+                (user_id, display_name))
+    return cur.fetchone() is not None
 
 # event handler
 async def handle_connection(ws):
@@ -42,36 +59,79 @@ async def handle_connection(ws):
             try:
                 msg = json.loads(message)
             except json.JSONDecodeError:
-                await ws.send(json.dumps({"type": "ERROR", "payload": {"code": "INVALID_JSON"}}))
+                error_message = create_error_message(private_key, "INVALID_JSON", "JSON decoding failed", SERVER_ID)
+                await ws.send(json.dumps(error_message))
                 continue
 
             print("Received:", msg)
             msg_type = msg.get("type")
 
             # processing the recived data
-            if msg_type == "USER_HELLO":
+            if msg_type == "USER_REGISTER":
                 user_id = msg.get("from")
-                payload = msg.get("payload", {})
+                encrypted_b64 = msg.get("payload")
+
+                if not encrypted_b64:
+                    error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                try:
+                    encrypted_bytes = base64.urlsafe_b64decode(encrypted_b64)
+                    decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
+                    payload = json.loads(decrypted_bytes.decode("utf-8"))
+                    
+                except Exception as e:
+                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
                 pubkey = payload.get("pubkey")
+                display_name = payload.get("display_name")
+                privkey_store = payload.get("privkey_store")
+                pake_password = payload.get("pake_password")
 
-                if not user_id or not pubkey:
-                    await ws.send(json.dumps({"type": "ERROR", "payload": {"code": "INVALID_MESSAGE"}}))
+                if not all([pubkey, display_name, privkey_store, pake_password]):
+                    error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
                     continue
-
-                # check duplicate
-                if user_id in local_users:
-                    await ws.send(json.dumps({"type": "ERROR", "payload": {"code": "NAME_IN_USE"}}))
+                
+                if user_exists(cur, user_id, display_name):
+                    error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been taken", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
                     continue
+                else:
+                    meta = json.dumps({"display_name": display_name})
+                    add_user(user_id, pubkey, privkey_store, pake_password, meta, 1)
 
                 # store in memory
                 local_users[user_id] = ws
                 user_locations[user_id] = "local"
 
                 # ACK
-                ack = {"type": "ACK", "from": SERVER_ID, "to": user_id,
-                       "payload": {"msg_ref": "USER_HELLO"}}
-                await ws.send(json.dumps(ack))
+                ack_msg = create_ack_message(private_key, msg_ref="USER_REGISTER", server_id=SERVER_ID, to_user=user_id)
+                await ws.send(json.dumps(ack_msg))
                 print(f"User {user_id} registered successfully!")
+                
+            elif msg_type == "USER_HELLO":
+                user_id = msg.get("from")
+                encrypted_b64 = msg.get("payload")
+
+                if not encrypted_b64:
+                    error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                try:
+                    encrypted_bytes = base64.urlsafe_b64decode(encrypted_b64)
+                    decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
+                    payload = json.loads(decrypted_bytes.decode("utf-8"))
+                    
+                except Exception as e:
+                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
 
     except websockets.ConnectionClosed:
         print("Client disconnected")
@@ -85,5 +145,18 @@ async def main():
         print("Server running on ws://localhost:8765")
         await asyncio.Future()  # run forever
 
+
+# Load private key from PEM file
+with open("ServerStorage/private_key.pem", "rb") as f:
+    private_key = serialization.load_pem_private_key(
+        f.read(),
+        password=b'my-password'  # the password you used when encrypting
+    )
+
+# Load public key from PEM file
+with open("ServerStorage/public_key.pem", "rb") as f:
+    public_key = serialization.load_pem_public_key(
+        f.read()
+    )
 asyncio.run(main())
 

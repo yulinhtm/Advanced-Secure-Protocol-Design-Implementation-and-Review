@@ -103,3 +103,75 @@ def rsa_oaep_encrypt(public_key, data: bytes) -> bytes:
         )
     )
     return encrypted
+
+#--for decrypting using desired key
+def rsa_oaep_decrypt(private_key: rsa.RSAPrivateKey, encrypted_data: bytes) -> bytes:
+
+    decrypted = private_key.decrypt(
+        encrypted_data,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return decrypted
+
+def sign_payload(private_key: rsa.RSAPrivateKey, payload_bytes: bytes) -> str:
+    
+    signature = private_key.sign(
+        payload_bytes,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+    return base64.urlsafe_b64encode(signature).decode("utf-8")
+
+def create_error_message(private_key: rsa.RSAPrivateKey, code: str, reason: str, server_id: str, to_user: str = "no_user_id") -> dict:
+
+    # Build payload
+    payload = {
+        "code": code,
+        "reason": reason
+    }
+    
+    # Canonicalize payload
+    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+    
+    # Sign the payload
+    signature_b64url = sign_payload(private_key, canonical_bytes)
+    
+    # Construct message
+    message = {
+        "type": "ERROR",
+        "from": server_id,
+        "to": to_user,
+        "payload": payload,
+        "sig": signature_b64url
+    }
+    return message
+
+def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: str, to_user: str) -> dict:
+    # Build payload
+    payload = {
+        "msg_ref": msg_ref
+    }
+    
+    # Canonicalize payload
+    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+    
+    # Sign the payload
+    signature_b64url = sign_payload(private_key, canonical_bytes)
+    
+    # Construct message
+    message = {
+        "type": "ACK",
+        "from": server_id,
+        "to": to_user,
+        "payload": payload,
+        "sig": signature_b64url
+    }
+    
+    return message

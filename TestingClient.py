@@ -52,10 +52,8 @@ async def register(ws, username: str, pubkey: str, password: str):
         "type": "USER_REGISTER",
         "from": user_id,
         "to": SERVER_ID,
-         "ts":1700000003000,
-        "payload": {
-            "data": encrypted_b64
-        },
+        "ts":1700000003000,
+        "payload":encrypted_b64,
         "sig": ""
     }
     await ws.send(json.dumps(reg_msg))
