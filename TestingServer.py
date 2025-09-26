@@ -5,17 +5,36 @@ import json
 import asyncio
 import websockets
 import traceback
+import sqlite3
+# import function that in crypto_utils.py
+from crypto_utils import *
 
-local_users = {}
-user_locations = {}
+servers = {}          # server_id -> WebSocket connection (Link wrapper)
+server_addrs = {}     # server_id -> (host, port)
+local_users = {}        # user_id -> WebSocket link
+user_locations = {}     # user_id -> "local" | server_id
+
+#config
 Server_Name = "server-1"
-
-def generate_user_id(username: str) -> str:
-    # deterministic UUID based on username (UUID5)
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, username))
 
 SERVER_ID = generate_user_id(Server_Name)
 
+# Database Model
+conn = sqlite3.connect("user.db")
+cur = conn.cursor()
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    pubkey TEXT NOT NULL,
+    privkey_store TEXT NOT NULL,
+    pake_password TEXT NOT NULL,
+    meta TEXT,
+    version INTEGER NOT NULL
+)
+""")
+conn.commit()
+
+# event handler
 async def handle_connection(ws):
     print("ws is:", ws)
     try:

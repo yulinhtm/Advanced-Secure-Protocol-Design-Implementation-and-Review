@@ -7,15 +7,12 @@ import json, base64
 import uuid
 import hashlib
 import os
+# import function that in crypto_utils.py
+from crypto_utils import *
 
 #--hard code variable
 SERVER_URL = "ws://localhost:8765"
 Server_Name = "server-1"
-
-#--for creating uuid for user
-def generate_user_id(username: str) -> str:
-    # deterministic UUID based on username (UUID5)
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, username))
     
 #--heshing the password before sending
 def hash_password(password: str, salt: str) -> str:
@@ -33,61 +30,6 @@ def store_salt(username: str, salt: str):
     }
     with open(f"{username}_client.json", "w") as f:
         json.dump(local_storage, f, indent=4)
-
-
-#--for creating key(both private and public)
-def generate_rsa_keypair():
-    # Generate RSA-4096 private key
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=4096
-    )
-    
-    # Extract public key
-    public_key = private_key.public_key()
-    
-    return private_key, public_key
-
-#--for changing the password into string and private key to blob
-def serialize_publickey(public_key: rsa.RSAPrivateKey):
-    # Public key → base64 string
-    pubkey_str = base64.urlsafe_b64encode(
-        public_key.public_key().public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-    ).decode("utf-8")
-
-
-    return pubkey_str
-
-def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str):
-    # Password must be bytes
-    password_bytes = password.encode("utf-8")
-
-    # Private key → PEM, encrypted with password
-    privkey_pem_encrypted = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.BestAvailableEncryption(password_bytes)
-    )
-
-    # Base64 encode so it's safe for JSON or DB storage
-    priv_blob_str = base64.urlsafe_b64encode(privkey_pem_encrypted).decode("utf-8")
-    return priv_blob_str
-
-#--for encrypting using desired key
-def rsa_oaep_encrypt(public_key, data: bytes) -> bytes:
-
-    encrypted = public_key.encrypt(
-        data,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-    return encrypted
 
 async def register(ws, username: str, pubkey: str, password: str):
     user_id = generate_user_id(username)
@@ -117,6 +59,7 @@ async def register(ws, username: str, pubkey: str, password: str):
         "sig": ""
     }
     await ws.send(json.dumps(reg_msg))
+    
     response = await ws.recv()
     print("Register response:", response)
     return user_id
