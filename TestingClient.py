@@ -45,7 +45,7 @@ async def register(ws, username: str, pubkey: str, password: str):
         "privkey_store": priv_blob,
         "pake_password": hashed
     }
-    payload_bytes = json.dumps(payload).encode("utf-8") # finished packing up the payload and start encrypt it
+    payload_bytes = json.dumps(payload).encode("utf-8")     # finished packing up the payload and start encrypt it
     encrypted = rsa_oaep_encrypt(server_pubkey, payload_bytes)
     encrypted_b64 = base64.urlsafe_b64encode(encrypted).decode("utf-8")
     reg_msg = {
@@ -58,8 +58,21 @@ async def register(ws, username: str, pubkey: str, password: str):
     }
     await ws.send(json.dumps(reg_msg))
     
-    response = await ws.recv()
-    print("Register response:", response)
+    response_raw = await ws.recv()
+    try:
+        response = json.loads(response_raw)     # convert to dict
+    except json.JSONDecodeError:
+        print("Invalid JSON received:", response_raw)
+        return
+    
+    payload_extracted, sig_extracted = extract_payload_and_signature(response)
+
+    if verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
+        print("Signature is valid\n")
+        print("Register response:", payload_extracted)
+    else:
+        print("Signature is INVALID")
+    
     return user_id
 
 async def login(ws, username: str, password: str):
