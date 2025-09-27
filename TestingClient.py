@@ -29,8 +29,15 @@ def store_salt(username: str, salt: str):
     local_storage = {
         "salt": salt,        # already a string
     }
-    with open(f"{username}_client.json", "w") as f:
+    with open(f"ClientStorage/{username}_client.json", "w") as f:
         json.dump(local_storage, f, indent=4)
+        
+def get_strong_password():
+    while True:
+        password = input("Enter your password: ")
+        if is_strong_password(password):
+            return password
+        print("Weak password! Must be 12+ chars with uppercase, lowercase, number, and symbol.")
 
 async def register(ws, username: str, password: str):
     user_id = generate_user_id(username)
@@ -88,14 +95,19 @@ async def register(ws, username: str, password: str):
         return
     
     payload_extracted, sig_extracted = extract_payload_and_signature(response)
+    registerSuccess = False
 
     if verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
         print("Signature is valid\n")
         print("Register response:", payload_extracted)
+        registerSuccess = True
+        save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+username+"_private_key.pem", "ClientStorage/"+username+"_public_key.pem", password)
+        store_salt(username, salt)
+        
     else:
         print("Signature is INVALID")
     
-    return user_id
+    return registerSuccess
 
 async def login(ws, username: str, password: str):
     user_id = generate_user_id(username)
@@ -119,10 +131,10 @@ async def main():
     value = input()
     if value == "1":
         username = input("Username: ")
-        password = input("Password: ")
+        password = get_strong_password()
         async with websockets.connect(SERVER_URL) as ws:
             print("Registering user...")
-            user_id = await register(ws, username, password)
+            registerSuccess = await register(ws, username, password)
         
     elif value == "2":
         async with websockets.connect(SERVER_URL) as ws:
@@ -138,5 +150,7 @@ with open("ClientStorage/server_public_key.pem", "rb") as f:
     
 SERVER_ID = generate_user_id(Server_Name)
 asyncio.run(main())
+
+
 
 

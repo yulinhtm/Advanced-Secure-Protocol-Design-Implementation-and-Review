@@ -5,6 +5,8 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.exceptions import InvalidSignature
 from typing import Tuple, Dict
 import uuid
+import string
+import random
 
 def verify_json_signature(public_key: rsa.RSAPublicKey, payload: dict, signature_b64url: str) -> bool:
     # Canonicalize the JSON payload (sorted keys, no whitespace variations)
@@ -173,3 +175,42 @@ def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: 
     }
     
     return message
+
+def is_strong_password(password: str) -> bool:
+    if len(password) < 12:
+        return False
+    if not any(c.isupper() for c in password):
+        return False
+    if not any(c.islower() for c in password):
+        return False
+    if not any(c.isdigit() for c in password):
+        return False
+    if not any(c in string.punctuation for c in password):
+        return False
+    return True
+
+def save_rsa_keys_to_files(private_key, public_key, private_path="private_key.pem", public_path="public_key.pem", password: str | None = None):
+
+    # Serialize private key
+    if password is None:
+        encryption_algo = serialization.NoEncryption()
+    else:
+        encryption_algo = serialization.BestAvailableEncryption(password.encode("utf-8"))
+
+    pem_private = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=encryption_algo
+    )
+
+    # Serialize public key
+    pem_public = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    # Save to files
+    with open(private_path, "wb") as f:
+        f.write(pem_private)
+    with open(public_path, "wb") as f:
+        f.write(pem_public)
