@@ -46,10 +46,15 @@ def add_user(user_id, pubkey, privkey_store, pake_password, meta=None, version=1
     conn.commit()
     conn.close()
     
-def user_exists(cur, user_id: str, display_name: str) -> bool:
-    cur.execute("SELECT 1 FROM users WHERE user_id = ? OR json_extract(meta, '$.display_name') = ?", 
-                (user_id, display_name))
-    return cur.fetchone() is not None
+def user_exists(user_id: str, display_name: str) -> bool:
+    # Open a fresh connection for this check
+    with sqlite3.connect("user.db") as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM users WHERE user_id = ? OR json_extract(meta, '$.display_name') = ?",
+            (user_id, display_name)
+        )
+        return cur.fetchone() is not None
 
 # event handler
 async def handle_connection(ws):
@@ -69,17 +74,33 @@ async def handle_connection(ws):
             # processing the recived data
             if msg_type == "USER_REGISTER":
                 user_id = msg.get("from")
-                encrypted_b64 = msg.get("payload")
+                payload_encrypted = msg.get("payload", {})
 
-                if not encrypted_b64:
+                if not payload_encrypted:
                     error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
                     await ws.send(json.dumps(error_message))
                     continue
                 
+                payload = {}
                 try:
-                    encrypted_bytes = base64.urlsafe_b64decode(encrypted_b64)
-                    decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
-                    payload = json.loads(decrypted_bytes.decode("utf-8"))
+                    for key, value in payload_encrypted.items():  # decrypting
+                        if key == "client":
+                            # Keep client field as-is
+                            payload[key] = value
+                            continue
+
+                        if isinstance(value, list):
+                            # Field was chunked, decrypt each piece and concatenate
+                            decrypted_bytes = b""
+                            for chunk_b64 in value:
+                                encrypted_bytes = base64.urlsafe_b64decode(chunk_b64)
+                                decrypted_bytes += rsa_oaep_decrypt(private_key, encrypted_bytes)
+                            payload[key] = decrypted_bytes.decode("utf-8")
+                        else:
+                            # Single encrypted field
+                            encrypted_bytes = base64.urlsafe_b64decode(value)
+                            decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
+                            payload[key] = decrypted_bytes.decode("utf-8")
                     
                 except Exception as e:
                     error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
@@ -90,13 +111,17 @@ async def handle_connection(ws):
                 display_name = payload.get("display_name")
                 privkey_store = payload.get("privkey_store")
                 pake_password = payload.get("pake_password")
-
+                print("pubkey is"+pubkey+"\n")
+                print("pudisplay_namebkey is"+display_name+"\n")
+                print("privkey_store is"+privkey_store+"\n")
+                print("pake_password is"+pake_password+"\n")
+                
                 if not all([pubkey, display_name, privkey_store, pake_password]):
                     error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
                     await ws.send(json.dumps(error_message))
                     continue
                 
-                if user_exists(cur, user_id, display_name):
+                if user_exists( user_id, display_name):
                     error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been taken", SERVER_ID)
                     await ws.send(json.dumps(error_message))
                     continue
@@ -158,5 +183,6 @@ with open("ServerStorage/public_key.pem", "rb") as f:
     public_key = serialization.load_pem_public_key(
         f.read()
     )
+SERVER_ID = generate_user_id(Server_Name)
 asyncio.run(main())
 

@@ -63,16 +63,14 @@ def generate_rsa_keypair():
     return private_key, public_key
 
 #--for changing the password into string and private key to blob
-def serialize_publickey(public_key: rsa.RSAPrivateKey):
-    # Public key → base64 string
+def serialize_publickey(private_key: rsa.RSAPrivateKey) -> str:
+    # Extract public key from private key → base64url UTF-8 string
     pubkey_str = base64.urlsafe_b64encode(
-        public_key.public_key().public_bytes(
+        private_key.public_key().public_bytes(
             encoding=serialization.Encoding.DER,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
     ).decode("utf-8")
-
-
     return pubkey_str
 
 def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str):
