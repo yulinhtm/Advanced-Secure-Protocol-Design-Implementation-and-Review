@@ -4,6 +4,8 @@ import uuid
 import asyncio
 import sqlite3
 import base64
+import string
+import random
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
