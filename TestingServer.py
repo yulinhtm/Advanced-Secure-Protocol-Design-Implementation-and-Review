@@ -22,6 +22,7 @@ SERVER_ID = generate_user_id(Server_Name)
 # Database Model
 conn = sqlite3.connect("user.db")
 cur = conn.cursor()
+# Create table if it doesn't exist
 cur.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
@@ -29,20 +30,29 @@ CREATE TABLE IF NOT EXISTS users (
     privkey_store TEXT NOT NULL,
     pake_password TEXT NOT NULL,
     meta TEXT,
-    version INTEGER NOT NULL
+    version INTEGER NOT NULL,
+    salt TEXT
 )
 """)
 conn.commit()
 conn.close()
 
 # for database
-def add_user(user_id, pubkey, privkey_store, pake_password, meta=None, version=1):
+def add_user(user_id, pubkey, privkey_store, pake_password, salt, meta=None, version=1):
     conn = sqlite3.connect("user.db")
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO users (user_id, pubkey, privkey_store, pake_password, meta, version)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, pubkey, privkey_store, pake_password, json.dumps(meta) if meta else None, version))
+        INSERT INTO users (user_id, pubkey, privkey_store, pake_password, salt, meta, version)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        pubkey,
+        privkey_store,
+        pake_password,
+        salt,
+        json.dumps(meta) if meta else None,
+        version
+    ))
     conn.commit()
     conn.close()
     
@@ -55,6 +65,26 @@ def user_exists(user_id: str, display_name: str) -> bool:
             (user_id, display_name)
         )
         return cur.fetchone() is not None
+    
+def check_user_password(user_id: str, password: str) -> bool:
+    conn = sqlite3.connect("user.db")
+    cur = conn.cursor()
+    
+    # Fetch stored hashed password and salt directly
+    cur.execute("SELECT pake_password, salt FROM users WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        return False  # User not found
+    
+    stored_hashed, salt = row
+    if not salt:
+        return False  # No salt stored
+    
+    # Hash input password with stored salt and compare
+    input_hashed = hash_password(password, salt)
+    return input_hashed == stored_hashed
 
 # event handler
 # In TestingServer.py
@@ -68,78 +98,118 @@ def get_user_pubkey(user_id: str) -> str | None:
         return result[0] if result else None
 
 async def handle_connection(ws):
-    print(f"New connection from: {ws.remote_address}")
-    user_id = None # Will be set after successful HELLO
-    
+    print("ws is:", ws)
     try:
-        # The first message from a client MUST be USER_HELLO
-        message_raw = await ws.recv()
-        msg = json.loads(message_raw)
-        
-        if msg.get("type") == "USER_HELLO":
-            user_id_from_msg = msg.get("from")
-            payload = msg.get("payload", {})
-            pubkey_from_msg_b64 = payload.get("pubkey")
+        async for message in ws:
+            try:
+                msg = json.loads(message)
+            except json.JSONDecodeError:
+                error_message = create_error_message(private_key, "INVALID_JSON", "JSON decoding failed", SERVER_ID)
+                await ws.send(json.dumps(error_message))
+                continue
 
-            if not all([user_id_from_msg, pubkey_from_msg_b64]):
-                await ws.send(json.dumps(create_error_message(private_key, "BAD_REQUEST", "USER_HELLO missing from or payload fields", SERVER_ID)))
-                await ws.close()
-                return
+            print("Received:", msg)
+            msg_type = msg.get("type")
 
-            # Check if user is already logged in
-            if user_id_from_msg in local_users:
-                await ws.send(json.dumps(create_error_message(private_key, "NAME_IN_USE", "User is already logged in", SERVER_ID, to_user=user_id_from_msg)))
-                await ws.close()
-                return
+            # processing the recived data
+            if msg_type == "USER_REGISTER":
+                user_id = msg.get("from")
+                payload_encrypted = msg.get("payload", {})
 
-            # Verify user against the database
-            pubkey_from_db_b64 = get_user_pubkey(user_id_from_msg)
+                if not payload_encrypted:
+                    error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                payload = {}
+                try:
+                    payload = decrypt_payload_fields(payload_encrypted, private_key)
+                    
+                except Exception as e:
+                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
 
-            if pubkey_from_db_b64 and pubkey_from_db_b64 == pubkey_from_msg_b64:
-                # User authenticated successfully!
-                user_id = user_id_from_msg # Assign user_id to this connection session
+                pubkey = payload.get("pubkey")
+                display_name = payload.get("display_name")
+                privkey_store = payload.get("privkey_store")
+                plain_password = payload.get("plain_password")
+                salt = payload.get("salt")
+                
+                if not all([pubkey, display_name, privkey_store, plain_password, salt]):
+                    error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                if user_exists( user_id, display_name):
+                    error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been taken", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                else:
+                    meta = json.dumps({"display_name": display_name})
+                    hashed = hash_password(plain_password, salt)
+                    add_user(user_id, pubkey, privkey_store, hashed, salt, meta, 1)
+
+                # store in memory
                 local_users[user_id] = ws
                 user_locations[user_id] = "local"
+
+                # ACK
+                ack_msg = create_ack_message(private_key, msg_ref="USER_REGISTER", server_id=SERVER_ID, to_user=user_id)
+                await ws.send(json.dumps(ack_msg))
+                print(f"User {user_id} registered successfully!")
                 
-                print(f"User '{user_id}' authenticated and connected.")
-                # Send ACK to client
+            elif msg_type == "USER_HELLO":
+                user_id = msg.get("from")
+                payload_encrypted = msg.get("payload", {})
+
+                if not payload_encrypted:
+                    error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                payload = {}
+                try:
+                    payload = decrypt_payload_fields(payload_encrypted, private_key)
+                    
+                except Exception as e:
+                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                pubkey = payload.get("pubkey")
+                plain_password = payload.get("plain_password")
+                
+                if not all([pubkey, plain_password]):
+                    error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                if not check_user_password(user_id, plain_password):
+                    error_message = create_error_message(private_key, "USER_NOT_FOUND", "Invalid username or/and password!", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                if user_id in local_users:
+                    # User already logged in
+                    error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been logged in", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                else:
+                    local_users[user_id] = ws
+                    user_locations[user_id] = "local"
+
+                # ACK
                 ack_msg = create_ack_message(private_key, msg_ref="USER_HELLO", server_id=SERVER_ID, to_user=user_id)
                 await ws.send(json.dumps(ack_msg))
-
-                # TODO: Broadcast USER_ADVERTISE to other servers here
-                print(f"TODO: Broadcast USER_ADVERTISE for {user_id}")
-
-                # --- Enter main message loop ---
-                async for message in ws:
-                    print(f"Received message from '{user_id}': {message}")
-                    # TODO: Handle MSG_DIRECT, MSG_PUBLIC_CHANNEL, etc.
-            
-            else:
-                # Authentication failed
-                print(f"Authentication failed for user_id {user_id_from_msg}.")
-                await ws.send(json.dumps(create_error_message(private_key, "USER_NOT_FOUND", "User ID or public key mismatch", SERVER_ID, to_user=user_id_from_msg)))
-                await ws.close()
-                return
-        else:
-            # First message was not USER_HELLO
-            print("Protocol error: First message was not USER_HELLO.")
-            await ws.send(json.dumps(create_error_message(private_key, "PROTOCOL_ERROR", "First message must be USER_HELLO", SERVER_ID)))
-            await ws.close()
+                print(f"User {user_id} log in successfully!")
+                
 
     except websockets.ConnectionClosed:
-        print(f"Client disconnected: {user_id if user_id else 'unauthenticated user'}")
+        print("Client disconnected")
     except Exception as e:
-        print(f"An error occurred in handle_connection: {e}")
+        print("Server error:")
         traceback.print_exc()
-    finally:
-        # Cleanup on disconnect
-        if user_id and user_id in local_users:
-            del local_users[user_id]
-            del user_locations[user_id]
-            print(f"Cleaned up session for user '{user_id}'.")
-            # TODO: Broadcast USER_REMOVE to other servers here
-            print(f"TODO: Broadcast USER_REMOVE for {user_id}")
-                
 
 
 async def main():
@@ -162,4 +232,3 @@ with open("ServerStorage/public_key.pem", "rb") as f:
     )
 SERVER_ID = generate_user_id(Server_Name)
 asyncio.run(main())
-
