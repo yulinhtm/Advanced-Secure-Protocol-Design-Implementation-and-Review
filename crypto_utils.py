@@ -7,6 +7,7 @@ from typing import Tuple, Dict
 import uuid
 import string
 import hashlib
+import os
 
 def verify_json_signature(public_key: rsa.RSAPublicKey, payload: dict, signature_b64url: str) -> bool:
     # Canonicalize the JSON payload (sorted keys, no whitespace variations)
