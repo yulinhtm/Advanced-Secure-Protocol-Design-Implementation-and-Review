@@ -87,6 +87,16 @@ def check_user_password(user_id: str, password: str) -> bool:
     return input_hashed == stored_hashed
 
 # event handler
+# In TestingServer.py
+
+def get_user_pubkey(user_id: str) -> str | None:
+    """Fetches a user's public key from the database."""
+    with sqlite3.connect("user.db") as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT pubkey FROM users WHERE user_id = ?", (user_id,))
+        result = cur.fetchone()
+        return result[0] if result else None
+
 async def handle_connection(ws):
     print("ws is:", ws)
     try:
@@ -222,4 +232,3 @@ with open("ServerStorage/public_key.pem", "rb") as f:
     )
 SERVER_ID = generate_user_id(Server_Name)
 asyncio.run(main())
-

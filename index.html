@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat — Simplified</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-grid">
+    <aside class="sidebar" aria-label="Chats list">
+      <header class="sidebar__header">
+        <h1>Chat</h1>
+        <button class="btn btn-primary">New Chat</button>
+      </header>
+
+      <div class="sidebar__search">
+        <input type="text" placeholder="Search..." aria-label="Search chats" />
+      </div>
+
+      <div class="sidebar__section">RECENT CHATS</div>
+
+      <ul class="chat-list">
+        <li class="chat-item is-online">
+          <div class="avatar">SC</div>
+          <div class="chat-item__main">
+            <div class="row">
+              <span class="name">Support ChatBot</span>
+              <span class="time">11:08 am</span>
+            </div>
+            <div class="row">
+              <span class="snippet">Online</span>
+            </div>
+          </div>
+        </li>
+
+        <li class="chat-item is-typing">
+          <div class="avatar">JP</div>
+          <div class="chat-item__main">
+            <div class="row">
+              <span class="name">Jason Porter</span>
+              <span class="time">11:08 am</span>
+            </div>
+            <div class="row">
+              <span class="snippet">Typing…</span>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </aside>
+
+    <main class="main" aria-label="Conversation">
+      <header class="chat-header">
+        <div class="chat-peer">
+          <div class="avatar big">JP</div>
+          <div class="peer-meta">
+            <div class="peer-name">Jason Porter</div>
+            <div class="peer-status">Online</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="messages" role="log" aria-live="polite">
+        <div class="divider"><span>Today</span></div>
+
+        <article class="bubble-row">
+          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=JP" alt="Jason Porter" />
+          <div class="bubble bubble-in">
+            <div class="bubble-text">
+              Hey! I pushed a draft of the landing page. Can you review the chat layout?
+            </div>
+            <div class="bubble-meta">11:06 am</div>
+          </div>
+        </article>
+
+        <article class="bubble-row me">
+          <div class="bubble bubble-out">
+            <div class="bubble-text">
+              Looks great.
+            </div>
+            <div class="bubble-meta">11:07 am • Seen</div>
+          </div>
+          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=RB" alt="You" />
+        </article>
+      </section>
+
+      <footer class="composer" aria-label="Message composer">
+        <input class="input" type="text" placeholder="Write a message..." aria-label="Write a message" />
+        <button class="btn btn-send" title="Send">Send</button>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    // --- DOM Element Selection ---
+    const composerInput = document.querySelector('.composer .input');
+    const sendButton = document.querySelector('.composer .btn-send');
+    const messagesContainer = document.querySelector('.messages');
+
+    // --- Function to add a new message bubble ---
+    function addMessage() {
+      const messageText = composerInput.value.trim();
+
+      // Do nothing if the input is empty
+      if (messageText === '') {
+        return;
+      }
+
+      // Get current time for the bubble metadata
+      const now = new Date();
+      const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+      // Create the HTML for the new outgoing message bubble
+      const bubbleHtml = `
+        <article class="bubble-row me">
+          <div class="bubble bubble-out">
+            <div class="bubble-text">${messageText}</div>
+            <div class="bubble-meta">${timeString}</div>
+          </div>
+          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=RB" alt="You" />
+        </article>
+      `;
+
+      // Add the new bubble to the messages container
+      messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
+
+      // Clear the input field and focus it for the next message
+      composerInput.value = '';
+      composerInput.focus();
+
+      // Automatically scroll to the bottom to see the new message
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // --- Event Listeners ---
+    
+    // 1. Send message when the "Send" button is clicked
+    sendButton.addEventListener('click', addMessage);
+
+    // 2. Send message when the "Enter" key is pressed in the input field
+    composerInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault(); // Prevents new line in some browsers
+        addMessage();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -6,6 +6,8 @@ Jiahui Wang a1822691
 
 Yuxuan Wu a1898143
 
+ShunChit Yu a1880719
+
 Network protocol: Websocket
 Encrytion: RSA
 public channel
