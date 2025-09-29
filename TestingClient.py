@@ -76,7 +76,7 @@ async def register(ws, username: str, password: str):
 
     if verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
         print("Signature is valid\n")
-        if payload_extracted.get("type") == "ACK":
+        if response.get("type") == "ACK":
             print("Server responded with ACK")
             registerSuccess = True
             safe_filename = hashlib.sha256(username.encode()).hexdigest()
