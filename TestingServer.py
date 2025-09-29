@@ -22,6 +22,7 @@ SERVER_ID = generate_user_id(Server_Name)
 # Database Model
 conn = sqlite3.connect("user.db")
 cur = conn.cursor()
+# Create table if it doesn't exist
 cur.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
@@ -29,20 +30,29 @@ CREATE TABLE IF NOT EXISTS users (
     privkey_store TEXT NOT NULL,
     pake_password TEXT NOT NULL,
     meta TEXT,
-    version INTEGER NOT NULL
+    version INTEGER NOT NULL,
+    salt TEXT
 )
 """)
 conn.commit()
 conn.close()
 
 # for database
-def add_user(user_id, pubkey, privkey_store, pake_password, meta=None, version=1):
+def add_user(user_id, pubkey, privkey_store, pake_password, salt, meta=None, version=1):
     conn = sqlite3.connect("user.db")
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO users (user_id, pubkey, privkey_store, pake_password, meta, version)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, pubkey, privkey_store, pake_password, json.dumps(meta) if meta else None, version))
+        INSERT INTO users (user_id, pubkey, privkey_store, pake_password, salt, meta, version)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        pubkey,
+        privkey_store,
+        pake_password,
+        salt,
+        json.dumps(meta) if meta else None,
+        version
+    ))
     conn.commit()
     conn.close()
     
@@ -55,6 +65,26 @@ def user_exists(user_id: str, display_name: str) -> bool:
             (user_id, display_name)
         )
         return cur.fetchone() is not None
+    
+def check_user_password(user_id: str, password: str) -> bool:
+    conn = sqlite3.connect("user.db")
+    cur = conn.cursor()
+    
+    # Fetch stored hashed password and salt directly
+    cur.execute("SELECT pake_password, salt FROM users WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        return False  # User not found
+    
+    stored_hashed, salt = row
+    if not salt:
+        return False  # No salt stored
+    
+    # Hash input password with stored salt and compare
+    input_hashed = hash_password(password, salt)
+    return input_hashed == stored_hashed
 
 # event handler
 async def handle_connection(ws):
@@ -83,24 +113,7 @@ async def handle_connection(ws):
                 
                 payload = {}
                 try:
-                    for key, value in payload_encrypted.items():  # decrypting
-                        if key == "client":
-                            # Keep client field as-is
-                            payload[key] = value
-                            continue
-
-                        if isinstance(value, list):
-                            # Field was chunked, decrypt each piece and concatenate
-                            decrypted_bytes = b""
-                            for chunk_b64 in value:
-                                encrypted_bytes = base64.urlsafe_b64decode(chunk_b64)
-                                decrypted_bytes += rsa_oaep_decrypt(private_key, encrypted_bytes)
-                            payload[key] = decrypted_bytes.decode("utf-8")
-                        else:
-                            # Single encrypted field
-                            encrypted_bytes = base64.urlsafe_b64decode(value)
-                            decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
-                            payload[key] = decrypted_bytes.decode("utf-8")
+                    payload = decrypt_payload_fields(payload_encrypted, private_key)
                     
                 except Exception as e:
                     error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
@@ -110,13 +123,10 @@ async def handle_connection(ws):
                 pubkey = payload.get("pubkey")
                 display_name = payload.get("display_name")
                 privkey_store = payload.get("privkey_store")
-                pake_password = payload.get("pake_password")
-                print("pubkey is"+pubkey+"\n")
-                print("pudisplay_namebkey is"+display_name+"\n")
-                print("privkey_store is"+privkey_store+"\n")
-                print("pake_password is"+pake_password+"\n")
+                plain_password = payload.get("plain_password")
+                salt = payload.get("salt")
                 
-                if not all([pubkey, display_name, privkey_store, pake_password]):
+                if not all([pubkey, display_name, privkey_store, plain_password, salt]):
                     error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
                     await ws.send(json.dumps(error_message))
                     continue
@@ -127,7 +137,8 @@ async def handle_connection(ws):
                     continue
                 else:
                     meta = json.dumps({"display_name": display_name})
-                    add_user(user_id, pubkey, privkey_store, pake_password, meta, 1)
+                    hashed = hash_password(plain_password, salt)
+                    add_user(user_id, pubkey, privkey_store, hashed, salt, meta, 1)
 
                 # store in memory
                 local_users[user_id] = ws
@@ -140,22 +151,48 @@ async def handle_connection(ws):
                 
             elif msg_type == "USER_HELLO":
                 user_id = msg.get("from")
-                encrypted_b64 = msg.get("payload")
+                payload_encrypted = msg.get("payload", {})
 
-                if not encrypted_b64:
+                if not payload_encrypted:
                     error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
                     await ws.send(json.dumps(error_message))
                     continue
                 
+                payload = {}
                 try:
-                    encrypted_bytes = base64.urlsafe_b64decode(encrypted_b64)
-                    decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
-                    payload = json.loads(decrypted_bytes.decode("utf-8"))
+                    payload = decrypt_payload_fields(payload_encrypted, private_key)
                     
                 except Exception as e:
                     error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
                     await ws.send(json.dumps(error_message))
                     continue
+
+                pubkey = payload.get("pubkey")
+                plain_password = payload.get("plain_password")
+                
+                if not all([pubkey, plain_password]):
+                    error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                if not check_user_password(user_id, plain_password):
+                    error_message = create_error_message(private_key, "USER_NOT_FOUND", "Invalid username or/and password!", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                if user_id in local_users:
+                    # User already logged in
+                    error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been logged in", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                else:
+                    local_users[user_id] = ws
+                    user_locations[user_id] = "local"
+
+                # ACK
+                ack_msg = create_ack_message(private_key, msg_ref="USER_HELLO", server_id=SERVER_ID, to_user=user_id)
+                await ws.send(json.dumps(ack_msg))
+                print(f"User {user_id} log in successfully!")
                 
 
     except websockets.ConnectionClosed:

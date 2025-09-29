@@ -14,11 +14,6 @@ from crypto_utils import *
 SERVER_URL = "ws://localhost:8765"
 Server_Name = "server-1"
 MAX_RSA_PLAINTEXT = 446  # for RSA-4096 OAEP SHA-256
-    
-#--heshing the password before sending
-def hash_password(password: str, salt: str) -> str:
-    # simple hash for demo, in production use PBKDF2, scrypt, bcrypt
-    return hashlib.sha256((password + salt).encode()).hexdigest()
 
 def generate_salt(length: int = 16) -> str:
     salt_bytes = os.urandom(length)  # random bytes
@@ -41,40 +36,22 @@ def get_strong_password():
 
 async def register(ws, username: str, password: str):
     user_id = generate_user_id(username)
-    private_key, public_key = generate_rsa_keypair();     # we need key if it is a new user
+    private_key, public_key = generate_rsa_keypair()     # we need key if it is a new user
     pubkey_str = serialize_publickey(private_key)
     priv_blob = serialize_privatekey(private_key, password)
     salt = generate_salt()
-    hashed = hash_password(password, salt)
     payload_fields = {
         "client": "cli-v1",
         "display_name": username,
         "pubkey": pubkey_str,
         "privkey_store": priv_blob,
-        "pake_password": hashed
+        "plain_password": password,
+        "salt": salt
     }
 
     # Encrypt each field separately
     encrypted_payload = {}
-    for key, value in payload_fields.items():
-        if key == "client":
-            # Keep the client field as-is, don't encrypt
-            encrypted_payload[key] = value
-            continue
-        field_bytes = value.encode("utf-8")
-        if len(field_bytes) > MAX_RSA_PLAINTEXT:
-            # Split into chunks
-            chunks = [field_bytes[i:i+MAX_RSA_PLAINTEXT] for i in range(0, len(field_bytes), MAX_RSA_PLAINTEXT)]
-            encrypted_chunks = []
-            for chunk in chunks:
-                encrypted_chunk = rsa_oaep_encrypt(server_pubkey, chunk)
-                encrypted_chunks.append(base64.urlsafe_b64encode(encrypted_chunk).decode("utf-8"))
-            # Store as a list of encrypted chunks
-            encrypted_payload[key] = encrypted_chunks
-        else:
-            # Encrypt normally
-            encrypted_bytes = rsa_oaep_encrypt(server_pubkey, field_bytes)
-            encrypted_payload[key] = base64.urlsafe_b64encode(encrypted_bytes).decode("utf-8")
+    encrypted_payload = encrypt_payload_fields(payload_fields, server_pubkey, MAX_RSA_PLAINTEXT)
 
     # Build the final registration message
     reg_msg = {
@@ -99,11 +76,13 @@ async def register(ws, username: str, password: str):
 
     if verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
         print("Signature is valid\n")
-        print("Register response:", payload_extracted)
-        registerSuccess = True
-        save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+username+"_private_key.pem", "ClientStorage/"+username+"_public_key.pem", password)
-        store_salt(username, salt)
-        
+        if payload_extracted.get("type") == "ACK":
+            print("Server responded with ACK")
+            registerSuccess = True
+            safe_filename = hashlib.sha256(username.encode()).hexdigest()
+            save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.pem", "ClientStorage/"+safe_filename+"_public_key.pem", password)
+        else:
+            print("Server response:", payload_extracted)  
     else:
         print("Signature is INVALID")
     
@@ -111,20 +90,54 @@ async def register(ws, username: str, password: str):
 
 async def login(ws, username: str, password: str):
     user_id = generate_user_id(username)
-    # For demonstration, we just hash password with user_id as salt
-    hashed = hash_password(password, user_id)
+    heshed_username = hashlib.sha256(username.encode()).hexdigest()
+    private_key, public_key = load_rsa_keys_from_files("ClientStorage/"+heshed_username+"_private_key.pem", "ClientStorage/"+heshed_username+"_public_key.pem", password)
+    newClient = False
+    if not private_key or not public_key:
+        private_key, public_key = generate_rsa_keypair()
+        newClient = True
+    pubkey_str = serialize_publickey(private_key)
+    payload_fields = {
+        "client": "cli-v1",
+        "pubkey": pubkey_str,    
+        "plain_password": password
+    }
+    encrypted_payload = encrypt_payload_fields(payload_fields, server_pubkey, MAX_RSA_PLAINTEXT)
+
     login_msg = {
         "type": "USER_HELLO",
         "from": user_id,
-        "to": "server-1",
-        "payload": {
-            "password_hash": hashed
-        },
+        "to": SERVER_ID,
+        "ts":1700000003000,
+        "payload": encrypted_payload,
         "sig": ""
     }
     await ws.send(json.dumps(login_msg))
-    response = await ws.recv()
-    print("Login response:", response)
+    
+    response_raw = await ws.recv()
+    try:
+        response = json.loads(response_raw)     # convert to dict
+    except json.JSONDecodeError:
+        print("Invalid JSON received:", response_raw)
+        return
+    
+    payload_extracted, sig_extracted = extract_payload_and_signature(response)
+    loginSuccess = False
+
+    if verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
+        print("Signature is valid\n")
+        if payload_extracted.get("type") == "ACK":
+            print("Server responded with ACK")
+            loginSuccess = True
+            if newClient:
+                safe_filename = hashlib.sha256(username.encode()).hexdigest()
+                save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.pem", "ClientStorage/"+safe_filename+"_public_key.pem", password)
+        else:
+            print("Server response:", payload_extracted)  
+    else:
+        print("Signature is INVALID")
+        
+    return loginSuccess
 
 async def main():
     print("Menu:\nLogin: Enter2\nRegister: Enter1")
@@ -138,6 +151,8 @@ async def main():
         
     elif value == "2":
         async with websockets.connect(SERVER_URL) as ws:
+            username = input("Username: ")
+            password = input("Enter your password: ")
             print("Logging in...")
             await login(ws, username, password)
         

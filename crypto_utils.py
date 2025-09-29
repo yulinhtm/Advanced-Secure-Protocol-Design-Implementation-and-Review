@@ -6,7 +6,7 @@ from cryptography.exceptions import InvalidSignature
 from typing import Tuple, Dict
 import uuid
 import string
-import random
+import hashlib
 
 def verify_json_signature(public_key: rsa.RSAPublicKey, payload: dict, signature_b64url: str) -> bool:
     # Canonicalize the JSON payload (sorted keys, no whitespace variations)
@@ -214,3 +214,81 @@ def save_rsa_keys_to_files(private_key, public_key, private_path="private_key.pe
         f.write(pem_private)
     with open(public_path, "wb") as f:
         f.write(pem_public)
+        
+def load_rsa_keys_from_files(private_path: str, public_path: str, password: str | None = None) -> tuple[rsa.RSAPrivateKey | None, rsa.RSAPublicKey | None]:
+    private_key = None
+    public_key = None
+
+    # Load private key if exists
+    if os.path.exists(private_path):
+        with open(private_path, "rb") as f:
+            try:
+                private_key = serialization.load_pem_private_key(
+                    f.read(),
+                    password=password.encode("utf-8") if password else None
+                )
+            except Exception:
+                private_key = None
+
+    # Load public key if exists
+    if os.path.exists(public_path):
+        with open(public_path, "rb") as f:
+            try:
+                public_key = serialization.load_pem_public_key(f.read())
+            except Exception:
+                public_key = None
+
+    return private_key, public_key
+        
+#--heshing the password 
+def hash_password(password: str, salt: str) -> str:
+    # simple hash for demo, in production use PBKDF2, scrypt, bcrypt
+    return hashlib.sha256((password + salt).encode()).hexdigest()
+
+def encrypt_payload_fields(payload_fields: dict, public_key, max_rsa_plaintext: int) -> dict:
+    encrypted_payload = {}
+
+    for key, value in payload_fields.items():
+        if key == "client":
+            encrypted_payload[key] = value
+            continue
+
+        field_bytes = value.encode("utf-8")
+
+        if len(field_bytes) > max_rsa_plaintext:
+            # Split into chunks for RSA encryption
+            chunks = [field_bytes[i:i+max_rsa_plaintext] for i in range(0, len(field_bytes), max_rsa_plaintext)]
+            encrypted_chunks = []
+            for chunk in chunks:
+                encrypted_chunk = rsa_oaep_encrypt(public_key, chunk)
+                encrypted_chunks.append(base64.urlsafe_b64encode(encrypted_chunk).decode("utf-8"))
+            encrypted_payload[key] = encrypted_chunks
+        else:
+            # Encrypt normally
+            encrypted_bytes = rsa_oaep_encrypt(public_key, field_bytes)
+            encrypted_payload[key] = base64.urlsafe_b64encode(encrypted_bytes).decode("utf-8")
+
+    return encrypted_payload
+
+def decrypt_payload_fields(payload_encrypted: dict, private_key) -> dict:
+    decrypted_payload = {}
+
+    for key, value in payload_encrypted.items():
+        if key == "client":
+            decrypted_payload[key] = value
+            continue
+
+        if isinstance(value, list):
+            # Field was chunked, decrypt each piece and concatenate
+            decrypted_bytes = b""
+            for chunk_b64 in value:
+                encrypted_bytes = base64.urlsafe_b64decode(chunk_b64)
+                decrypted_bytes += rsa_oaep_decrypt(private_key, encrypted_bytes)
+            decrypted_payload[key] = decrypted_bytes.decode("utf-8")
+        else:
+            # Single encrypted field
+            encrypted_bytes = base64.urlsafe_b64decode(value)
+            decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
+            decrypted_payload[key] = decrypted_bytes.decode("utf-8")
+
+    return decrypted_payload
