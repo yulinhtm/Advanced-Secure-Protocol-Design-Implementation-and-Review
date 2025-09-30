@@ -293,3 +293,4 @@ def decrypt_payload_fields(payload_encrypted: dict, private_key) -> dict:
             decrypted_payload[key] = decrypted_bytes.decode("utf-8")
 
     return decrypted_payload
+

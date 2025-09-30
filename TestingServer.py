@@ -6,6 +6,7 @@ import asyncio
 import websockets
 import traceback
 import sqlite3
+import yaml
 # import function that in crypto_utils.py
 from crypto_utils import *
 
@@ -96,6 +97,11 @@ def get_user_pubkey(user_id: str) -> str | None:
         cur.execute("SELECT pubkey FROM users WHERE user_id = ?", (user_id,))
         result = cur.fetchone()
         return result[0] if result else None
+    
+def load_bootstrap_list(path="bootstrap_servers.yaml"):
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data.get("bootstrap_servers", [])
 
 async def handle_connection(ws):
     print("ws is:", ws)
