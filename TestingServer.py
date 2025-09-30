@@ -1,7 +1,3 @@
-# Temporarily store the public key of the logged-in user
-local_users = {}        # user_id -> WebSocket link
-user_locations = {}     # user_id -> "local" | server_id
-user_pubkeys = {}       # new add: user_id -> pubkey string
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
 import uuid
@@ -10,6 +6,7 @@ import asyncio
 import websockets
 import traceback
 import sqlite3
+import yaml
 # import function that in crypto_utils.py
 from crypto_utils import *
 
@@ -100,75 +97,119 @@ def get_user_pubkey(user_id: str) -> str | None:
         cur.execute("SELECT pubkey FROM users WHERE user_id = ?", (user_id,))
         result = cur.fetchone()
         return result[0] if result else None
-
-#  avoid repeating code.
-async def broadcast_user_list():
-    """Builds and sends the current user list to all connected clients."""
-    online_users_list = []
-    for uid in local_users:
-        if uid in user_pubkeys:
-            online_users_list.append({"user_id": uid, "pubkey": user_pubkeys[uid]})
     
-    update_message = {
-        "type": "USER_LIST_UPDATE",
-        "payload": {"users": online_users_list}
-    }
-    
-    if local_users: # Only broadcast if there are users left
-        # The list comprehension creates a list of all send tasks
-        tasks = [ws_conn.send(json.dumps(update_message)) for ws_conn in local_users.values()]
-        # asyncio.gather runs all tasks concurrently
-        await asyncio.gather(*tasks)
-
-
+def load_bootstrap_list(path="bootstrap_servers.yaml"):
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data.get("bootstrap_servers", [])
 
 async def handle_connection(ws):
-    user_id = None  # To keep track of the user for this connection
+    print("ws is:", ws)
     try:
         async for message in ws:
-            msg = json.loads(message)
+            try:
+                msg = json.loads(message)
+            except json.JSONDecodeError:
+                error_message = create_error_message(private_key, "INVALID_JSON", "JSON decoding failed", SERVER_ID)
+                await ws.send(json.dumps(error_message))
+                continue
+
+            print("Received:", msg)
             msg_type = msg.get("type")
 
+            # processing the recived data
             if msg_type == "USER_REGISTER":
-                pass
+                user_id = msg.get("from")
+                payload_encrypted = msg.get("payload", {})
 
+                if not payload_encrypted:
+                    error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                payload = {}
+                try:
+                    payload = decrypt_payload_fields(payload_encrypted, private_key)
+                    
+                except Exception as e:
+                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                pubkey = payload.get("pubkey")
+                display_name = payload.get("display_name")
+                privkey_store = payload.get("privkey_store")
+                plain_password = payload.get("plain_password")
+                salt = payload.get("salt")
+                
+                if not all([pubkey, display_name, privkey_store, plain_password, salt]):
+                    error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                if user_exists( user_id, display_name):
+                    error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been taken", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                else:
+                    meta = json.dumps({"display_name": display_name})
+                    hashed = hash_password(plain_password, salt)
+                    add_user(user_id, pubkey, privkey_store, hashed, salt, meta, 1)
+
+                # store in memory
+                local_users[user_id] = ws
+                user_locations[user_id] = "local"
+
+                # ACK
+                ack_msg = create_ack_message(private_key, msg_ref="USER_REGISTER", server_id=SERVER_ID, to_user=user_id)
+                await ws.send(json.dumps(ack_msg))
+                print(f"User {user_id} registered successfully!")
+                
             elif msg_type == "USER_HELLO":
-                
-                user_id_from_msg = msg.get("from")
-                payload = decrypt_payload_fields(msg.get("payload", {}), private_key)
-                password = payload.get("plain_password")
+                user_id = msg.get("from")
+                payload_encrypted = msg.get("payload", {})
 
-                if user_exists(user_id_from_msg, "") and check_user_password(user_id_from_msg, password):
-                    user_id = user_id_from_msg # Assign user_id for this session
+                if not payload_encrypted:
+                    error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                payload = {}
+                try:
+                    payload = decrypt_payload_fields(payload_encrypted, private_key)
+                    
+                except Exception as e:
+                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                pubkey = payload.get("pubkey")
+                plain_password = payload.get("plain_password")
+                
+                if not all([pubkey, plain_password]):
+                    error_message = create_error_message(private_key, "MISSING_FIELDS", "Missing required fields in payload", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                if not check_user_password(user_id, plain_password):
+                    error_message = create_error_message(private_key, "USER_NOT_FOUND", "Invalid username or/and password!", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                if user_id in local_users:
+                    # User already logged in
+                    error_message = create_error_message(private_key, "NAME_IN_USE", "This username have been logged in", SERVER_ID)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                else:
                     local_users[user_id] = ws
-                    
-                    ack_msg = create_ack_message(private_key, "Login OK", SERVER_ID, to_user=user_id)
-                    await ws.send(json.dumps(ack_msg))
-                    print(f"User {user_id} logged in successfully!")
+                    user_locations[user_id] = "local"
 
-                    # Store the user's public key for E2EE messaging
-                    pubkey_from_payload = payload.get("pubkey")
-                    user_pubkeys[user_id] = pubkey_from_payload
-                    
-                    # 3. Broadcast the updated user list to everyone
-                    await broadcast_user_list()
-                    print(f"Broadcasted user list update after {user_id} joined.")
+                # ACK
+                ack_msg = create_ack_message(private_key, msg_ref="USER_HELLO", server_id=SERVER_ID, to_user=user_id)
+                await ws.send(json.dumps(ack_msg))
+                print(f"User {user_id} log in successfully!")
                 
-                else:
-                    # Login failed
-                    error_msg = create_error_message(private_key, "AUTH_FAILED", "Invalid credentials", SERVER_ID, to_user=user_id_from_msg)
-                    await ws.send(json.dumps(error_msg))
-
-            elif msg_type == "MSG_DIRECT":
-                recipient_id = msg.get("to")
-                sender_id = msg.get("from")
-                if recipient_id in local_users:
-                    recipient_ws = local_users[recipient_id]
-                    print(f"Routing message from {sender_id} to {recipient_id}")
-                    await recipient_ws.send(json.dumps(msg))
-                else:
-                    print(f"Recipient {recipient_id} not found locally. Message dropped.")
-
     except websockets.ConnectionClosed:
         print(f"Client disconnected: {ws.remote_address}")
         if user_id in local_users:
@@ -182,9 +223,12 @@ async def handle_connection(ws):
             await broadcast_user_list()
             print("Broadcasted user list update after user disconnected.")
 
+    except websockets.ConnectionClosed:
+        print("Client disconnected")
     except Exception as e:
-        print(f"Server error: {e}")
+        print("Server error:")
         traceback.print_exc()
+
 
 async def main():
     async with websockets.serve(handle_connection, "localhost", 8765):

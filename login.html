@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login / Register</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-tabs">
+            <button id="tab-login" class="auth-tab active">Login</button>
+            <button id="tab-register" class="auth-tab">Register</button>
+        </div>
+
+        <form id="login-form">
+            <h2>Welcome Back!</h2>
+            <div class="form-group">
+                <label for="login-userid">User ID</label>
+                <input type="text" id="login-userid" class="input" placeholder="Enter the User ID from registration" required>
+            </div>
+            <div class="form-group">
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" class="input" required>
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Login</button>
+        </form>
+
+        <form id="register-form" class="hidden">
+            <h2>Create Account</h2>
+            
+            <div class="form-group avatar-uploader">
+                <label for="avatar-upload">
+                    <img src="https://api.dicebear.com/7.x/initials/svg?seed=?" alt="Avatar Preview" class="avatar-preview" id="avatar-preview">
+                    <span>Upload Avatar</span>
+                </label>
+                <input type="file" id="avatar-upload" accept="image/*" hidden>
+            </div>
+
+            <div class="form-group">
+                <label for="register-username">Username</label>
+                <input type="text" id="register-username" class="input" required>
+            </div>
+            <div class="form-group">
+                <label for="register-password">Password</label>
+                <input type="password" id="register-password" class="input" required>
+            </div>
+             <div class="form-group">
+                <label for="register-confirm-password">Confirm Password</label>
+                <input type="password" id="register-confirm-password" class="input" required>
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Create Account</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    // --- DOM Element Selection (no changes here) ---
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const avatarUpload = document.getElementById('avatar-upload');
+    const avatarPreview = document.getElementById('avatar-preview');
+
+    // --- Tab Switching Logic (no changes here) ---
+    tabLogin.addEventListener('click', () => {
+        loginForm.classList.remove('hidden');
+        registerForm.classList.add('hidden');
+        tabLogin.classList.add('active');
+        tabRegister.classList.remove('active');
+    });
+
+    tabRegister.addEventListener('click', () => {
+        registerForm.classList.remove('hidden');
+        loginForm.classList.add('hidden');
+        tabRegister.classList.add('active');
+        tabLogin.classList.remove('active');
+    });
+    
+    // --- Avatar Upload Preview Logic (no changes here) ---
+    avatarUpload.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                avatarPreview.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // --- Form Submission Logic ---
+    loginForm.addEventListener('submit', (event) => {
+        event.preventDefault(); // Prevent page reload
+        
+        // MODIFIED: Get the User ID from the input field
+        const userId = document.getElementById('login-userid').value;
+        console.log(`Simulating login for User ID: ${userId}`);
+        
+        // Simulate a delay for network request
+        setTimeout(() => {
+            // Redirect to the chat page on successful login
+            window.location.href = 'index.html';
+        }, 1000); // 1 second delay
+    });
+    
+    // MODIFIED: Register form now generates a User ID and shows it in an alert
+    registerForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        
+        const password = document.getElementById('register-password').value;
+        const confirmPassword = document.getElementById('register-confirm-password').value;
+
+        if (password !== confirmPassword) {
+            alert("Passwords do not match!");
+            return;
+        }
+
+        // In a real application, you would send registration data to your Python server.
+        // The server would then generate and return the User ID.
+        // Here, we simulate this process using JavaScript.
+        console.log('Simulating successful registration...');
+
+        // --- NEW: Generate a mock User ID and display it ---
+        // crypto.randomUUID() generates a standard, unique ID like "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+        const newUserId = crypto.randomUUID();
+        
+        // After successful registration, show the User ID in a popup.
+        // Using \n creates new lines in the alert box for better readability.
+        alert(
+            "Registration successful!\n\n" +
+            "IMPORTANT: Your new User ID is:\n" +
+            `${newUserId}\n\n` +
+            "Please copy it and use it to log in."
+        );
+        
+        // Programmatically switch to the login tab so the user can log in
+        tabLogin.click();
+    });
+
+</script>
+
+</body>
+</html>
