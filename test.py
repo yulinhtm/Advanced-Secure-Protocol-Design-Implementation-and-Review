@@ -30,4 +30,5 @@ pub_b64url = base64.urlsafe_b64encode(der_bytes).rstrip(b'=').decode('ascii')
 
 print("BASE64URL(RSA-4096-PUB):")
 print(pub_b64url)
+print("Hi")
 
