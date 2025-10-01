@@ -8,6 +8,77 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .modal-content h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .modal-user-id {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            color: #d63384;
+            margin-bottom: 20px;
+            word-wrap: break-word;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+             padding: 10px 15px;
+             border: none;
+             border-radius: 5px;
+             cursor: pointer;
+             font-size: 16px;
+             font-family: 'Inter', sans-serif;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        .full-width {
+            width: 100%;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
 <body>
 
@@ -59,16 +130,31 @@
     </div>
 </div>
 
+<div id="user-id-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <h3>Registration Successful!</h3>
+        <p>Please copy and save your new User ID. You will need it to log in.</p>
+        <div id="modal-user-id" class="modal-user-id"></div>
+        <div class="modal-actions">
+            <button id="copy-id-btn" class="btn btn-primary full-width">Copy ID</button>
+            <button id="close-modal-btn" class="btn btn-secondary full-width">Close</button>
+        </div>
+    </div>
+</div>
+
+
 <script>
-    // --- DOM Element Selection (no changes here) ---
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
     const avatarUpload = document.getElementById('avatar-upload');
     const avatarPreview = document.getElementById('avatar-preview');
+    const userIdModal = document.getElementById('user-id-modal');
+    const modalUserId = document.getElementById('modal-user-id');
+    const copyIdBtn = document.getElementById('copy-id-btn');
+    const closeModalBtn = document.getElementById('close-modal-btn');
 
-    // --- Tab Switching Logic (no changes here) ---
     tabLogin.addEventListener('click', () => {
         loginForm.classList.remove('hidden');
         registerForm.classList.add('hidden');
@@ -83,7 +169,6 @@
         tabLogin.classList.remove('active');
     });
     
-    // --- Avatar Upload Preview Logic (no changes here) ---
     avatarUpload.addEventListener('change', (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -95,22 +180,17 @@
         }
     });
 
-    // --- Form Submission Logic ---
     loginForm.addEventListener('submit', (event) => {
-        event.preventDefault(); // Prevent page reload
+        event.preventDefault();
         
-        // MODIFIED: Get the User ID from the input field
         const userId = document.getElementById('login-userid').value;
         console.log(`Simulating login for User ID: ${userId}`);
         
-        // Simulate a delay for network request
         setTimeout(() => {
-            // Redirect to the chat page on successful login
             window.location.href = 'index.html';
-        }, 1000); // 1 second delay
+        }, 1000); 
     });
     
-    // MODIFIED: Register form now generates a User ID and shows it in an alert
     registerForm.addEventListener('submit', (event) => {
         event.preventDefault();
         
@@ -122,25 +202,31 @@
             return;
         }
 
-        // In a real application, you would send registration data to your Python server.
-        // The server would then generate and return the User ID.
-        // Here, we simulate this process using JavaScript.
         console.log('Simulating successful registration...');
 
-        // --- NEW: Generate a mock User ID and display it ---
-        // crypto.randomUUID() generates a standard, unique ID like "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
         const newUserId = crypto.randomUUID();
         
-        // After successful registration, show the User ID in a popup.
-        // Using \n creates new lines in the alert box for better readability.
-        alert(
-            "Registration successful!\n\n" +
-            "IMPORTANT: Your new User ID is:\n" +
-            `${newUserId}\n\n` +
-            "Please copy it and use it to log in."
-        );
+        modalUserId.textContent = newUserId;
         
-        // Programmatically switch to the login tab so the user can log in
+        copyIdBtn.textContent = 'Copy ID';
+        copyIdBtn.disabled = false;
+
+        userIdModal.classList.remove('hidden');
+    });
+    
+    copyIdBtn.addEventListener('click', () => {
+        const userIdToCopy = modalUserId.textContent;
+        navigator.clipboard.writeText(userIdToCopy).then(() => {
+            copyIdBtn.textContent = 'Copied!';
+            copyIdBtn.disabled = true;
+        }).catch(err => {
+            console.error('Failed to copy text: ', err);
+            alert('Failed to copy ID. Please copy it manually.');
+        });
+    });
+
+    closeModalBtn.addEventListener('click', () => {
+        userIdModal.classList.add('hidden');
         tabLogin.click();
     });
 
