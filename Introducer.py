@@ -3,6 +3,13 @@ import websockets
 import json
 import uuid
 from datetime import datetime
+# import function that in crypto_utils.py
+from crypto_utils import *
+
+#config
+Server_Name = "introducer-1"
+
+SERVER_ID = generate_user_id(Server_Name)
 
 # Keep track of registered servers
 servers = {}
@@ -17,6 +24,8 @@ async def handle_connection(ws):
         try:
             msg = json.loads(message)
         except json.JSONDecodeError:
+            error_message = create_error_message(private_key, "INVALID_JSON", "JSON decoding failed", SERVER_ID)
+            await ws.send(json.dumps(error_message))
             continue
 
         msg_type = msg.get("type")
@@ -56,4 +65,17 @@ async def main():
         print("Introducer running on ws://localhost:8765")
         await asyncio.Future()  # run forever
 
+# Load private key from PEM file
+with open("IntroducerStorage/private_key.der", "rb") as f:
+    private_key = serialization.load_pem_private_key(
+        f.read(),
+        password=b'my-password'  # the password you used when encrypting(can change to user input later)
+    )
+
+# Load public key from PEM file
+with open("IntroducerStorage/public_key.der", "rb") as f:
+    public_key = serialization.load_pem_public_key(
+        f.read()
+    )
+    
 asyncio.run(main())

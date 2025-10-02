@@ -225,14 +225,14 @@ async def main():
 
 
 # Load private key from PEM file
-with open("ServerStorage/private_key.pem", "rb") as f:
+with open("ServerStorage/private_key.der", "rb") as f:
     private_key = serialization.load_pem_private_key(
         f.read(),
-        password=b'my-password'  # the password you used when encrypting
+        password=b'my-password'  # the password you used when encrypting(can change to user input later)
     )
 
 # Load public key from PEM file
-with open("ServerStorage/public_key.pem", "rb") as f:
+with open("ServerStorage/public_key.der", "rb") as f:
     public_key = serialization.load_pem_public_key(
         f.read()
     )
