@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8" >
+  <meta name="viewport" content="width=device-width, initial-scale=1" >
   <title>Chat — Simplified</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css" >
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -14,40 +14,13 @@
     <aside class="sidebar" aria-label="Chats list">
       <header class="sidebar__header">
         <h1>Chat</h1>
-        <button class="btn btn-primary">New Chat</button>
       </header>
-
-      <div class="sidebar__search">
-        <input type="text" placeholder="Search..." aria-label="Search chats" />
-      </div>
-
-      <div class="sidebar__section">RECENT CHATS</div>
-
-      <ul class="chat-list">
-        <li class="chat-item is-online">
-          <div class="avatar">SC</div>
-          <div class="chat-item__main">
-            <div class="row">
-              <span class="name">Support ChatBot</span>
-              <span class="time">11:08 am</span>
+      <div class="sidebar__section">ONLINE USERS</div>
+      <ul class="chat-list" id="online-users-list">
+        <li class="chat-item">
+            <div class="chat-item__main">
+                <span class="name">Connecting...</span>
             </div>
-            <div class="row">
-              <span class="snippet">Online</span>
-            </div>
-          </div>
-        </li>
-
-        <li class="chat-item is-typing">
-          <div class="avatar">JP</div>
-          <div class="chat-item__main">
-            <div class="row">
-              <span class="name">Jason Porter</span>
-              <span class="time">11:08 am</span>
-            </div>
-            <div class="row">
-              <span class="snippet">Typing…</span>
-            </div>
-          </div>
         </li>
       </ul>
     </aside>
@@ -55,96 +28,142 @@
     <main class="main" aria-label="Conversation">
       <header class="chat-header">
         <div class="chat-peer">
-          <div class="avatar big">JP</div>
+          <div class="avatar big">GC</div>
           <div class="peer-meta">
-            <div class="peer-name">Jason Porter</div>
-            <div class="peer-status">Online</div>
+            <div class="peer-name">Global Chat</div>
+            <div class="peer-status">Public Channel</div>
           </div>
         </div>
       </header>
 
-      <section class="messages" role="log" aria-live="polite">
-        <div class="divider"><span>Today</span></div>
-
-        <article class="bubble-row">
-          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=JP" alt="Jason Porter" />
-          <div class="bubble bubble-in">
-            <div class="bubble-text">
-              Hey! I pushed a draft of the landing page. Can you review the chat layout?
-            </div>
-            <div class="bubble-meta">11:06 am</div>
-          </div>
-        </article>
-
-        <article class="bubble-row me">
-          <div class="bubble bubble-out">
-            <div class="bubble-text">
-              Looks great.
-            </div>
-            <div class="bubble-meta">11:07 am • Seen</div>
-          </div>
-          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=RB" alt="You" />
-        </article>
+      <section class="messages" id="messages-container" role="log" aria-live="polite">
+        <div class="divider"><span>Welcome!</span></div>
       </section>
 
       <footer class="composer" aria-label="Message composer">
-        <input class="input" type="text" placeholder="Write a message..." aria-label="Write a message" />
-        <button class="btn btn-send" title="Send">Send</button>
+        <input class="input" id="message-input" type="text" placeholder="Write a message..." aria-label="Write a message" >
+        <input type="file" id="file-input" style="display:none" >
+        <button type="button" class="btn btn-file" id="file-button" title="Upload File"> 📎 </button>
+        <button type="submit" class="btn btn-send" id="send-button" title="Send">Send</button>
       </footer>
+
     </main>
   </div>
 
   <script>
-    // --- DOM Element Selection ---
-    const composerInput = document.querySelector('.composer .input');
-    const sendButton = document.querySelector('.composer .btn-send');
-    const messagesContainer = document.querySelector('.messages');
+    // --- WebSocket and DOM Element Setup ---
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const messagesContainer = document.getElementById('messages-container');
+    const onlineUsersList = document.getElementById('online-users-list');
 
-    // --- Function to add a new message bubble ---
-    function addMessage() {
-      const messageText = composerInput.value.trim();
+    // --- State variables (replace with actual user data after login) ---
+    // IMPORTANT: In a real app, these values would be set after a secure login process.
+    const MOCK_USER_ID = "user-" + Math.random().toString(16).substring(2, 8);
+    const MOCK_SERVER_ID = "server-id-placeholder"; // The server the client connects to
 
-      // Do nothing if the input is empty
-      if (messageText === '') {
-        return;
-      }
+    // --- WebSocket Connection ---
+    const ws = new WebSocket("ws://localhost:8765");
 
-      // Get current time for the bubble metadata
-      const now = new Date();
-      const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    ws.onopen = () => {
+      console.log("Connected to the WebSocket server.");
+      // In a real implementation, you would send a proper USER_HELLO message here.
+      // For now, let's just log it.
+      console.log("Sending a mock USER_HELLO for:", MOCK_USER_ID);
+      // Example of a real USER_HELLO (requires user's keys)
+      // const helloMsg = { type: "USER_HELLO", from: MOCK_USER_ID, to: MOCK_SERVER_ID, payload: { pubkey: "..." } };
+      // ws.send(JSON.stringify(helloMsg));
+      
+      addSystemMessage("Connected to server.");
+    };
 
-      // Create the HTML for the new outgoing message bubble
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      console.log("Received message:", message);
+
+      // This is where you would handle different message types from the server
+      // For this example, we will just display any message as a simple bubble.
+      
+      // A real implementation would check message.type, e.g., "MSG_DIRECT", "USER_LIST_UPDATE"
+      // For now, we assume any message is a chat message.
+      const sender = message.from || "Unknown";
+      const text = message.payload ? JSON.stringify(message.payload) : (message.text || "No text");
+      
+      addIncomingMessage(sender, text);
+    };
+
+    ws.onclose = () => {
+      console.log("Disconnected from the WebSocket server.");
+      addSystemMessage("Disconnected. Please refresh to reconnect.");
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      addSystemMessage("Connection error.");
+    };
+
+    // --- UI Functions ---
+
+    // Function to add a system message (like "Connected") to the chat window
+    function addSystemMessage(text) {
+        const dividerHtml = `<div class="divider"><span>${text}</span></div>`;
+        messagesContainer.insertAdjacentHTML('beforeend', dividerHtml);
+    }
+    
+    // Function to add an OUTGOING message bubble
+    function addOutgoingMessage(text) {
       const bubbleHtml = `
         <article class="bubble-row me">
           <div class="bubble bubble-out">
-            <div class="bubble-text">${messageText}</div>
-            <div class="bubble-meta">${timeString}</div>
+            <div class="bubble-text">${text}</div>
           </div>
-          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=RB" alt="You" />
-        </article>
-      `;
-
-      // Add the new bubble to the messages container
+        </article>`;
       messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
-
-      // Clear the input field and focus it for the next message
-      composerInput.value = '';
-      composerInput.focus();
-
-      // Automatically scroll to the bottom to see the new message
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // --- Event Listeners ---
-    
-    // 1. Send message when the "Send" button is clicked
-    sendButton.addEventListener('click', addMessage);
+    // Function to add an INCOMING message bubble
+    function addIncomingMessage(sender, text) {
+        const bubbleHtml = `
+        <article class="bubble-row">
+            <div class="avatar">${sender.substring(0, 2).toUpperCase()}</div>
+            <div class="bubble bubble-in">
+                <div class="bubble-text">${text}</div>
+            </div>
+        </article>`;
+        messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
 
-    // 2. Send message when the "Enter" key is pressed in the input field
-    composerInput.addEventListener('keydown', (event) => {
+    // --- Event Handling ---
+    function sendMessage() {
+      const messageText = messageInput.value.trim();
+      if (messageText === '') return;
+
+      // 1. Add the bubble to our own UI immediately for a responsive feel
+      addOutgoingMessage(messageText);
+      
+      // 2. Send the message to the server via WebSocket
+      const messageObject = {
+        type: "MSG_DIRECT", // Or MSG_PUBLIC_CHANNEL
+        from: MOCK_USER_ID,
+        to: "recipient-placeholder", 
+        payload: {
+            ciphertext: messageText // This should be ENCRYPTED ciphertext
+        }
+      };
+      ws.send(JSON.stringify(messageObject));
+
+      // 3. Clear the input field
+      messageInput.value = '';
+      messageInput.focus();
+    }
+
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
-        event.preventDefault(); // Prevents new line in some browsers
-        addMessage();
+        event.preventDefault();
+        sendMessage();
       }
     });
   </script>
