@@ -10,24 +10,24 @@ private_key = rsa.generate_private_key(
 #Extract public key
 public_key = private_key.public_key()
 
-# Serialize private key to PEM (unencrypted for now)
-pem_private = private_key.private_bytes(
-    encoding=serialization.Encoding.PEM,
+# Serialize private key to DER (encrypted)
+der_private = private_key.private_bytes(
+    encoding=serialization.Encoding.DER,
     format=serialization.PrivateFormat.PKCS8,
     encryption_algorithm=serialization.BestAvailableEncryption(b'my-password')
 )
 
-#Serialize public key to PEM
-pem_public = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
+# Serialize public key to DER
+der_public = public_key.public_bytes(
+    encoding=serialization.Encoding.DER,
     format=serialization.PublicFormat.SubjectPublicKeyInfo
 )
 
 # Save to files (optional)
-with open("private_key.pem", "wb") as f:
-    f.write(pem_private)
+with open("private_key.der", "wb") as f:
+    f.write(der_private)
 
-with open("public_key.pem", "wb") as f:
-    f.write(pem_public)
+with open("public_key.der", "wb") as f:
+    f.write(der_public)
 
 print("RSA-4096 key pair generated successfully!")

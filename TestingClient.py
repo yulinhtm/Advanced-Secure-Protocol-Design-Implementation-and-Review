@@ -38,7 +38,7 @@ async def register(ws, username: str, password: str):
     user_id = generate_user_id(username)
     private_key, public_key = generate_rsa_keypair()     # we need key if it is a new user
     pubkey_str = serialize_publickey(private_key)
-    priv_blob = serialize_privatekey(private_key, password)
+    priv_blob = serialize_privatekey(private_key, password) #marked
     salt = generate_salt()
     payload_fields = {
         "client": "cli-v1",
@@ -80,7 +80,7 @@ async def register(ws, username: str, password: str):
             print("Server responded with ACK")
             registerSuccess = True
             safe_filename = hashlib.sha256(username.encode()).hexdigest()
-            save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.pem", "ClientStorage/"+safe_filename+"_public_key.pem", password)
+            save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
         else:
             print("Server response:", payload_extracted)  
     else:
@@ -91,7 +91,7 @@ async def register(ws, username: str, password: str):
 async def login(ws, username: str, password: str):
     user_id = generate_user_id(username)
     heshed_username = hashlib.sha256(username.encode()).hexdigest()
-    private_key, public_key = load_rsa_keys_from_files("ClientStorage/"+heshed_username+"_private_key.pem", "ClientStorage/"+heshed_username+"_public_key.pem", password)
+    private_key, public_key = load_rsa_keys_from_files("ClientStorage/"+heshed_username+"_private_key.der", "ClientStorage/"+heshed_username+"_public_key.der", password)
     newClient = False
     if not private_key or not public_key:
         private_key, public_key = generate_rsa_keypair()
@@ -131,7 +131,7 @@ async def login(ws, username: str, password: str):
             loginSuccess = True
             if newClient:
                 safe_filename = hashlib.sha256(username.encode()).hexdigest()
-                save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.pem", "ClientStorage/"+safe_filename+"_public_key.pem", password)
+                save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
         else:
             print("Server response:", payload_extracted)  
     else:
@@ -160,11 +160,12 @@ async def main():
         print("Error!, wrong input")
 
 # Load server's public key
-with open("ClientStorage/server_public_key.pem", "rb") as f:
-    server_pubkey = serialization.load_pem_public_key(f.read())
+with open("ClientStorage/server_public_key.der", "rb") as f:
+    server_pubkey = serialization.load_der_public_key(f.read())
     
 SERVER_ID = generate_user_id(Server_Name)
-asyncio.run(main())
+
+
 
 
 
