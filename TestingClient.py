@@ -161,10 +161,10 @@ async def main():
 
 # Load server's public key
 with open("ClientStorage/server_public_key.der", "rb") as f:
-    server_pubkey = serialization.load_pem_public_key(f.read())
+    server_pubkey = serialization.load_der_public_key(f.read())
     
 SERVER_ID = generate_user_id(Server_Name)
-asyncio.run(main())
+
 
 
 

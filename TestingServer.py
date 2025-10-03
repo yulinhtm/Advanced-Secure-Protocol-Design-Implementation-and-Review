@@ -224,18 +224,7 @@ async def main():
         await asyncio.Future()  # run forever
 
 
-private_key, public_key = load_rsa_keys_from_files("ClientStorage/"+heshed_username+"_private_key.der", "ClientStorage/"+heshed_username+"_public_key.der", password)
-# Load private key from PEM file
-with open("ServerStorage/private_key.der", "rb") as f:
-    private_key = serialization.load_pem_private_key(
-        f.read(),
-        password=b'my-password'  # the password you used when encrypting(can change to user input later)
-    )
+private_key, public_key = load_rsa_keys_from_files("ServerStorage/private_key.der", "ServerStorage/public_key.der", 'my-password')
 
-# Load public key from PEM file
-with open("ServerStorage/public_key.der", "rb") as f:
-    public_key = serialization.load_pem_public_key(
-        f.read()
-    )
 SERVER_ID = generate_user_id(Server_Name)
 asyncio.run(main())
