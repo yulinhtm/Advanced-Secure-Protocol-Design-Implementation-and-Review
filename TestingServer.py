@@ -14,13 +14,13 @@ from crypto_utils import *
 
 servers = {}          # server_id -> WebSocket connection (Link wrapper)
 # server_id (str or int) -> (host, port)
-server_addrs: Dict[str, Tuple[str, int]] = {}
+server_addrs: Dict[str, Dict[str, str]] = {}
 server_pubkeys: Dict[str, str] = {}
 local_users = {}        # user_id -> WebSocket link
 user_locations = {}     # user_id -> "local" | server_id
 
 #config
-SERVER_PORT = 8765
+SERVER_PORT = "8765"
 Server_Name = "server-1"
 
 SERVER_ID = generate_user_id(Server_Name)
@@ -111,6 +111,7 @@ def load_bootstrap_list(path="bootstrap_servers.yaml"):
     return data.get("bootstrap_servers", [])
 
 async def bootstrap_to_introducer(introducer):
+    global SERVER_ID
     host = introducer["host"]
     port = introducer["port"]
     introducer_pubkey_b64 = introducer["pubkey"]
@@ -127,7 +128,7 @@ async def bootstrap_to_introducer(introducer):
     try:
         async with websockets.connect(uri) as ws:
             payload_fields = {
-                "host": SERVER_ID,
+                "host": SERVER_ADDRESS,
                 "port": SERVER_PORT,
                 "pubkey": pubkey_str
             }
@@ -166,6 +167,11 @@ async def bootstrap_to_introducer(introducer):
                 
             except Exception as e:
                 print("Decrypt failed")
+                print("Decrypt failed!")
+                print("Exception type:", type(e).__name__)
+                print("Exception message:", str(e))
+                print("Traceback:")
+                traceback.print_exc()
                 return False
             
             payload_extracted, sig_extracted = extract_payload_and_signature(response)
@@ -177,13 +183,24 @@ async def bootstrap_to_introducer(introducer):
                     assigned_id = payload.get("assigned_id")
                     server_list = payload.get("clients", [])
                     SERVER_ID = assigned_id
-
                     for client in server_list:
-                        user_id = client["user_id"]
-                        server_addrs[user_id] = (client["host"], client["port"])
-                        server_pubkeys[user_id] = client["pubkey"]
-                        
-                    Success = broadcast_server_announce( private_key, pubkey_str)
+                        # Ensure client is a dictionary
+                        if isinstance(client, dict):
+                            user_id = client.get("user_id")
+                            host = client.get("host")
+                            port = client.get("port")
+                            pubkey = client.get("pubkey")
+
+                            # Only store if user_id, host, and port exist
+                            if user_id and host and port:
+                                server_addrs[user_id] = {
+                                    "host": host,
+                                    "port": port
+                                }
+                                if pubkey:
+                                    server_pubkeys[user_id] = pubkey
+                    
+                    Success = await broadcast_server_announce( private_key, pubkey_str)
                     
                 elif response.get("type") == "ERROR":
                     print("Introducer returned an error:", response.get("message"))
@@ -192,6 +209,7 @@ async def bootstrap_to_introducer(introducer):
                 print("Signature is INVALID")
 
 
+            await ws.close(code=1000, reason="Server shutting down")
             return Success
 
     except Exception as e:
@@ -206,18 +224,21 @@ async def bootstrap_from_yaml(yaml_path="bootstrap_servers.yaml"):
     bootstrap_list = config.get("bootstrap_servers", [])
 
     for introducer in bootstrap_list:
-        assigned_id, server_list = await bootstrap_to_introducer(introducer)
-        if assigned_id is not None:
-            return assigned_id, server_list
+        success = await bootstrap_to_introducer(introducer)
+        if success:
+            print("Connect to a introducers succesfully and able to broadcast to other server successfully")
+            return True
 
     print("Failed to connect to all introducers.")
-    return None, None
+    return False
 
 async def broadcast_server_announce( private_key, pubkey_str):
     Success = True
-    for server_id, (host, port) in server_addrs.items():
+    for server_id, info in server_addrs.items():
         try:
-            uri = f"ws://{host}:{port}"
+            host = info.get("host")  # safer access
+            port = info.get("port")
+            uri = f"ws://{host}:{int(port)}"
             async with websockets.connect(uri) as ws:
                 payload_fields = {
                     "host": SERVER_ADDRESS,  # your server's IP
@@ -258,6 +279,7 @@ async def broadcast_server_announce( private_key, pubkey_str):
                     if response.get("type") == "ACK":
                         print("Server responded with ACK")
                         print("Server response:", payload_extracted) 
+                        servers[server_id] = ws
                     else:
                         print("Server response:", payload_extracted)
                         Success = False
@@ -268,7 +290,6 @@ async def broadcast_server_announce( private_key, pubkey_str):
         except Exception as e:
             print(f"Failed to send SERVER_ANNOUNCE to {server_id} at {host}:{port}: {e}")
             Success = False
-            
     return Success
 
 async def handle_connection(ws):
@@ -417,7 +438,10 @@ async def handle_connection(ws):
                     print(f"Server ID {announcing_server_id} is new.")
 
                 # Update server_addrs and server_pubkeys for easy access
-                server_addrs[announcing_server_id] = (announced_host, announced_port)
+                server_addrs[announcing_server_id] = {
+                    "host": announced_host,
+                    "port": announced_port
+                }
                 server_pubkeys[announcing_server_id] = announced_pubkey
                 servers[announcing_server_id] = ws
                 
@@ -435,10 +459,9 @@ async def handle_connection(ws):
 
 
 async def main():
-    assigned_id, server_list = asyncio.run(bootstrap_from_yaml())
-    print("Final assigned ID:", assigned_id)
-    print("Final server list:", server_list)
-    async with websockets.serve(handle_connection, SERVER_ADDRESS, 8765):
+    success = await (bootstrap_from_yaml())
+    print("Success or Not:", success)
+    async with websockets.serve(handle_connection, SERVER_ADDRESS, int(SERVER_PORT)):
         print("Server running on ws://localhost:8765")
         await asyncio.Future()  # run forever
 

@@ -12,7 +12,7 @@ Server_Name = "introducer-1"
 SERVER_ID = generate_user_id(Server_Name)
 MAX_RSA_PLAINTEXT = 446  # for RSA-4096 OAEP SHA-256
 SERVER_ADDRESS = "127.0.0.1"
-SERVER_PORT = 5001
+SERVER_PORT = "5001"
 
 # Keep track of registered servers
 servers = {}
@@ -54,7 +54,8 @@ async def handle_connection(ws):
 
             new_host = payload.get("host")
             new_port = payload.get("port")
-            new_pubkey = payload.get("pubkey")
+            new_pubkey_str = payload.get("pubkey")
+            new_pubkey = deserialize_publickey(new_pubkey_str)
             payload_extracted, sig_extracted = extract_payload_and_signature(msg)
             if verify_json_signature(new_pubkey, payload_extracted, sig_extracted):
                 print("Signature is valid\n")  
@@ -71,13 +72,6 @@ async def handle_connection(ws):
 
             print(f"Server {new_server_id} registered successfully.")
                 
-            # Register the new server
-            servers[new_server_id] = {
-                "host": new_host,
-                "port": new_port,
-                "pubkey": new_pubkey
-            }
-            
             clients = [
                 {
                     "user_id": user_id,
@@ -88,9 +82,17 @@ async def handle_connection(ws):
                 for user_id, info in servers.items()
             ]
             
+            # Register the new server
+            servers[new_server_id] = {
+                "host": new_host,
+                "port": new_port,
+                "pubkey": new_pubkey_str
+            }
+            
+            
             payload_fields = {
-                "assigned_id": new_server_id,
-                "clients": clients
+                "assigned_id": str(new_server_id),
+                "clients": json.dumps(clients)
             }
 
             encrypted_payload = encrypt_payload_fields(payload_fields, new_pubkey, MAX_RSA_PLAINTEXT)
@@ -103,18 +105,19 @@ async def handle_connection(ws):
                 "from": SERVER_ID,
                 "to": new_server_id,
                 "ts": int(time.time() * 1000),
-                "payload": payload_fields,
+                "payload": encrypted_payload,
                 "sig": sig
             }
 
+            print("Sent Ack")
             await ws.send(json.dumps(welcome_msg))
 
 # Start introducer server
 async def main():
-    async with websockets.serve(handle_connection, SERVER_ADDRESS, SERVER_PORT):
+    async with websockets.serve(handle_connection, SERVER_ADDRESS, int(SERVER_PORT)):
         print("Introducer running on ws://localhost:5001")
         await asyncio.Future()  # run forever
 
-private_key, public_key = load_rsa_keys_from_files("IntroducerStorage/private_key.der", "IntroducerStorage/public_key.der", 'my-password')
+private_key, public_key = load_rsa_keys_from_files("IntroducerStorage/introducer_private_key.der", "IntroducerStorage/introducer_public_key.der", 'my-password')
     
 asyncio.run(main())

@@ -91,6 +91,19 @@ def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str) -> str:
     priv_blob_str = base64.urlsafe_b64encode(privkey_der_encrypted).decode("utf-8")
     return priv_blob_str
 
+def deserialize_publickey(pubkey_str: str):
+    pub_bytes = base64.urlsafe_b64decode(pubkey_str)
+    public_key = serialization.load_der_public_key(pub_bytes)
+    return public_key
+
+def deserialize_privatekey(privkey_str: str, password: str):
+    priv_bytes = base64.urlsafe_b64decode(privkey_str)
+    private_key = serialization.load_der_private_key(
+        priv_bytes,
+        password=password.encode("utf-8")
+    )
+    return private_key
+
 
 #--for encrypting using desired key
 def rsa_oaep_encrypt(public_key, data: bytes) -> bytes:
