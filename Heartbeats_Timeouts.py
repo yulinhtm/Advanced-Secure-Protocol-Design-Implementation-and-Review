@@ -2,7 +2,8 @@ import asyncio
 import time
 import json
 import websockets
-import crypto_utils as cu
+from crypto_utils import *
+
 
 # --- Module Variables (will be injected from main) ---
 servers = {}           # server_id -> ws
@@ -33,14 +34,8 @@ async def send_heartbeats_periodically():
                     "to": server_id,
                     "ts": int(time.time() * 1000),
                     "payload": {},
-                    "sig":"..."
+                    "sig":" "
                 }   
-                if sign_payload and private_key:
-                    heartbeat_msg["sig"] = sign_payload(
-                        private_key,
-                        cu.canonical_json(heartbeat_msg["payload"]).encode("utf-8")
-                    )
-
                 await ws.send(json.dumps(heartbeat_msg))
             except websockets.ConnectionClosed:
                 print(f"Failed to send heartbeat to {server_id}, connection is already closed.")
@@ -82,3 +77,4 @@ async def reconnect_to_server(server_id, addr):
         print(f"Connected to {server_id}")
     except Exception as e:
         print(f"Failed to connect to {server_id}: {e}")
+

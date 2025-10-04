@@ -76,20 +76,33 @@ def serialize_publickey(private_key: rsa.RSAPrivateKey) -> str:
     ).decode("utf-8")
     return pubkey_str
 
-def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str):
+def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str) -> str:
     # Password must be bytes
     password_bytes = password.encode("utf-8")
 
-    # Private key → PEM, encrypted with password
-    privkey_pem_encrypted = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
+    # Private key → DER, encrypted with password
+    privkey_der_encrypted = private_key.private_bytes(
+        encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.BestAvailableEncryption(password_bytes)
     )
 
     # Base64 encode so it's safe for JSON or DB storage
-    priv_blob_str = base64.urlsafe_b64encode(privkey_pem_encrypted).decode("utf-8")
+    priv_blob_str = base64.urlsafe_b64encode(privkey_der_encrypted).decode("utf-8")
     return priv_blob_str
+
+def deserialize_publickey(pubkey_str: str):
+    pub_bytes = base64.urlsafe_b64decode(pubkey_str)
+    public_key = serialization.load_der_public_key(pub_bytes)
+    return public_key
+
+def deserialize_privatekey(privkey_str: str, password: str):
+    priv_bytes = base64.urlsafe_b64decode(privkey_str)
+    private_key = serialization.load_der_private_key(
+        priv_bytes,
+        password=password.encode("utf-8")
+    )
+    return private_key
 
 
 #--for encrypting using desired key
@@ -190,31 +203,30 @@ def is_strong_password(password: str) -> bool:
         return False
     return True
 
-def save_rsa_keys_to_files(private_key, public_key, private_path="private_key.pem", public_path="public_key.pem", password: str | None = None):
-
+def save_rsa_keys_to_files(private_key, public_key, private_path="private_key.der", public_path="public_key.der", password: str | None = None):
     # Serialize private key
     if password is None:
         encryption_algo = serialization.NoEncryption()
     else:
         encryption_algo = serialization.BestAvailableEncryption(password.encode("utf-8"))
 
-    pem_private = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
+    der_private = private_key.private_bytes(
+        encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=encryption_algo
     )
 
     # Serialize public key
-    pem_public = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
+    der_public = public_key.public_bytes(
+        encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
 
     # Save to files
     with open(private_path, "wb") as f:
-        f.write(pem_private)
+        f.write(der_private)
     with open(public_path, "wb") as f:
-        f.write(pem_public)
+        f.write(der_public)
         
 def load_rsa_keys_from_files(private_path: str, public_path: str, password: str | None = None) -> tuple[rsa.RSAPrivateKey | None, rsa.RSAPublicKey | None]:
     private_key = None
@@ -224,7 +236,7 @@ def load_rsa_keys_from_files(private_path: str, public_path: str, password: str 
     if os.path.exists(private_path):
         with open(private_path, "rb") as f:
             try:
-                private_key = serialization.load_pem_private_key(
+                private_key = serialization.load_der_private_key(
                     f.read(),
                     password=password.encode("utf-8") if password else None
                 )
@@ -235,7 +247,7 @@ def load_rsa_keys_from_files(private_path: str, public_path: str, password: str 
     if os.path.exists(public_path):
         with open(public_path, "rb") as f:
             try:
-                public_key = serialization.load_pem_public_key(f.read())
+                public_key = serialization.load_der_public_key(f.read())
             except Exception:
                 public_key = None
 
@@ -293,3 +305,4 @@ def decrypt_payload_fields(payload_encrypted: dict, private_key) -> dict:
             decrypted_payload[key] = decrypted_bytes.decode("utf-8")
 
     return decrypted_payload
+
