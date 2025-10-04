@@ -1,11 +1,3 @@
-# ClientCommands.py
-"""
-ClientCommands - implements /list, /tell, /file according to SOCP (secure variant).
-- get_recipient_pubkey reads pubkey from local SQLite 'user.db' users.pubkey (base64url DER).
-- do_tell signs content_sig = PSS-SHA256( SHA256(ciphertext_b64 || from || to || ts) )
-- do_file signs manifest and each chunk (chunk_sig) over canonical JSON of chunk-info.
-"""
-
 import os
 import time
 import json
@@ -17,7 +9,7 @@ from typing import Optional
 
 import crypto_utils as cu
 
-MAX_RSA_PLAINTEXT = 446  # RSA-4096 OAEP SHA-256 max plaintext bytes
+RSA_PLAINTEXT_LIMIT = 446  # RSA-4096 OAEP SHA-256 max plaintext bytes
 
 def _b64url_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode('utf-8').rstrip('=')
@@ -105,7 +97,6 @@ class ClientCommands:
             "ciphertext": ciphertext_b64,
             "sender_pub": cu.serialize_publickey(self.privkey.public_key()),
             "content_sig": content_sig,
-            # 新增三字段：用于接收端复原同一签名输入
             "sig_from": sig_from,
             "sig_to":   sig_to,
             "sig_ts":   sig_ts,
@@ -115,92 +106,91 @@ class ClientCommands:
             "type": "MSG_DIRECT",
             "from": self.user_id,
             "to": recipient_id,
-            "ts": _now_ms(),   # envelope 的 ts 不参与签名，无所谓
+            "ts": _now_ms(),  
             "payload": payload
         }
         await self.ws.send(json.dumps(env))
 
 
-    # ---------------- /file (manifest + chunk_sig) ----------------
-    async def do_file(self, recipient_id: str, filepath: str, recipient_pub=None, mode: str = "dm"):
-        """
-        Send file in three phases:
-          FILE_START: manifest + manifest_sig (canonical JSON signed)
-          FILE_CHUNK: ciphertext (RSA-OAEP using recipient_pub) + chunk_sig (PSS over canonical JSON of chunk info)
-          FILE_END
-        """
+    # ---------------- /file (DM + RSA) ----------------
+    async def do_file(self, recipient_id: str, filepath: str, recipient_pub=None):
+
         if not os.path.exists(filepath):
             raise FileNotFoundError(filepath)
 
+        # 拿接收方公钥
         if recipient_pub is None:
             recipient_pub = await self.get_recipient_pubkey(recipient_id)
         if recipient_pub is None:
             raise ValueError("recipient public key unavailable")
 
         file_id = str(time.time_ns())
-        name = os.path.basename(filepath)
-        size = os.path.getsize(filepath)
+        name    = os.path.basename(filepath)
+        size    = os.path.getsize(filepath)
 
+        # --- 1) 发送 FILE_START：清单 + 签名 ---
         manifest = {
             "file_id": file_id,
-            "name": name,
-            "size": size,
-            "mode": mode
+            "name":    name,
+            "size":    size,
+            "mode":    "dm-rsa",           # 标注模式，便于调试
+            "chunk":   RSA_PLAINTEXT_LIMIT # 告知对端用多大分块（明文）
         }
-        manifest_bytes = cu.canonical_json(manifest).encode('utf-8')
-        manifest_sig = cu.sign_payload(self.privkey, manifest_bytes)
+        manifest_sig = cu.sign_payload(self.privkey, cu.canonical_json(manifest).encode("utf-8"))
 
         start_msg = {
             "type": "FILE_START",
             "from": self.user_id,
-            "to": recipient_id,
-            "ts": _now_ms(),
+            "to":   recipient_id,
+            "ts":   cu.int_ts_ms(),
             "payload": {
                 **manifest,
                 "manifest_sig": manifest_sig,
-                # 修正：序列化自己的 “公钥对象”
-                "sender_pub": cu.serialize_publickey(self.privkey.public_key())
+                "sender_pub":   cu.serialize_publickey(self.privkey.public_key()),
             }
         }
         await self.ws.send(json.dumps(start_msg))
 
-        # send chunks
+        # --- 2) 按 RSA 上限分块，加密后发送 FILE_CHUNK ---
+        sent = 0
         with open(filepath, "rb") as f:
             idx = 0
             while True:
-                chunk = f.read(MAX_RSA_PLAINTEXT)
-                if not chunk:
+                plain = f.read(RSA_PLAINTEXT_LIMIT)
+                if not plain:
                     break
-                ciph = cu.rsa_oaep_encrypt(recipient_pub, chunk)
-                ciph_b64 = _b64url_encode(ciph)
 
-                # chunk_sig: sign canonical_json of {file_id, index, ciphertext}
+                ciph     = cu.rsa_oaep_encrypt(recipient_pub, plain)
+                ciph_b64 = cu.b64url_encode(ciph)
+
+                # 对块做签名：对 {file_id,index,ciphertext} 的 canonical JSON 做 RSASSA-PSS
                 chunk_info = {"file_id": file_id, "index": idx, "ciphertext": ciph_b64}
-                chunk_sig = cu.sign_payload(self.privkey, cu.canonical_json(chunk_info).encode('utf-8'))
+                chunk_sig  = cu.sign_payload(self.privkey, cu.canonical_json(chunk_info).encode("utf-8"))
 
                 chunk_msg = {
                     "type": "FILE_CHUNK",
                     "from": self.user_id,
-                    "to": recipient_id,
-                    "ts": _now_ms(),
+                    "to":   recipient_id,
+                    "ts":   cu.int_ts_ms(),
                     "payload": {
-                        "file_id": file_id,
-                        "index": idx,
-                        "ciphertext": ciph_b64,
+                        **chunk_info,
                         "chunk_sig": chunk_sig
                     }
                 }
                 await self.ws.send(json.dumps(chunk_msg))
-                idx += 1
+                sent += len(plain)
+                idx  += 1
 
+        # --- 发送 FILE_END ---
         end_msg = {
             "type": "FILE_END",
             "from": self.user_id,
-            "to": recipient_id,
-            "ts": _now_ms(),
+            "to":   recipient_id,
+            "ts":   cu.int_ts_ms(),
             "payload": {"file_id": file_id}
         }
         await self.ws.send(json.dumps(end_msg))
+        print(f"[/file] Sent {name} ({size} bytes) to {recipient_id} (DM-RSA)")
 
     async def do_all(self, plaintext: str, group_id: str = "public"):
         """

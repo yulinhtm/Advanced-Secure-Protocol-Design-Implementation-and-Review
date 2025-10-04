@@ -76,6 +76,15 @@ def get_user_pubkey(user_id: str) -> str | None:
         cur.execute("SELECT pubkey FROM users WHERE user_id = ?", (user_id,))
         r = cur.fetchone()
         return r[0] if r else None
+    
+
+def get_display_name(user_id: str) -> str:
+    with sqlite3.connect(DB) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT json_extract(meta, '$.display_name') FROM users WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+    return row[0] if row and row[0] else user_id
+
 
 # ===================== WebSocket 发送统一封装 =====================
 async def ws_send(link, message_str: str):
@@ -106,7 +115,8 @@ handlers = ServerHandlers(
     servers=servers,
     server_addrs=server_addrs,
     privkey=private_key,
-    server_id=SERVER_ID
+    server_id=SERVER_ID,
+    resolve_username=get_display_name,
 )
 
 # ===================== ACK / ERROR 生成（带签名） =====================

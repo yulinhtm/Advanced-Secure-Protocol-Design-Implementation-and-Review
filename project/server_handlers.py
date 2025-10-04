@@ -9,7 +9,7 @@ import hashlib
 import crypto_utils as cu
 
 class ServerHandlers:
-    def __init__(self, ws_send_func, local_users, user_locations, servers, server_addrs, privkey, server_id):
+    def __init__(self, ws_send_func, local_users, user_locations, servers, server_addrs, privkey, server_id, resolve_username=None):
         self.ws_send = ws_send_func
         self.local_users = local_users        # user_id -> ws
         self.user_locations = user_locations  # user_id -> "local" or server_id
@@ -17,6 +17,7 @@ class ServerHandlers:
         self.server_addrs = server_addrs
         self.privkey = privkey
         self.server_id = server_id
+        self.resolve_username = resolve_username
 
     def _now_ts(self):
         return int(time.time() * 1000)
@@ -62,17 +63,19 @@ class ServerHandlers:
 
     # ---------- /tell ----------
     async def handle_msg_direct(self, envelope, client_link):
-        sender    = envelope.get("from")
+        sender_id    = envelope.get("from")
         recipient = envelope.get("to")
         payload   = envelope.get("payload", {}) or {}
 
         if recipient not in self.user_locations:
-            await self._send_error(client_link, sender, "USER_NOT_FOUND", f"{recipient} not found")
+            await self._send_error(client_link, sender_id, "USER_NOT_FOUND", f"{recipient} not found")
             return
 
         # 关键：透传原 payload（包含 sig_from/sig_to/sig_ts 等），并补充 sender 字段
         server_payload = dict(payload)
-        server_payload.setdefault("sender", sender)
+        display_name = self.resolve_username(sender_id) if self.resolve_username else sender_id
+        server_payload["sender"] = display_name
+        # print("[DEBUG server_payload]\n" + json.dumps(server_payload, indent=2))
 
         if self.user_locations[recipient] == "local":
             ud = {

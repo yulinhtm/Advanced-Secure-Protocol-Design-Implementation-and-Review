@@ -159,7 +159,8 @@ async def run_shell(ws, username: str, private_key):
         commands = ClientCommands(ws=ws, user_id=user_id, username=username)
 
     print("Ready. Commands: /list , /tell <user_id> <message> , /all <message> , /file <user_id> <path>")
-
+    incoming_files = {}  # file_id -> {"sender_pub","name","size","fh","received","dir"}
+    os.makedirs("Downloads", exist_ok=True)
     async def listen_server():
         try:
             async for raw in ws:
@@ -233,7 +234,7 @@ async def run_shell(ws, username: str, private_key):
 
                     # 优先用 payload 里随签名带的字段
                     s_from = payload.get("sig_from") or payload.get("sender") or msg.get("from")
-                    s_to   = payload.get("sig_to")   or msg.get("to")
+                    s_to   = payload.get("user_id") or payload.get("sig_to")   or msg.get("to")
                     s_ts   = payload.get("sig_ts")   or msg.get("ts")
 
                     if not (ct_b64 and sender_pub64 and content_sig and s_from and s_to and s_ts is not None):
@@ -254,6 +255,88 @@ async def run_shell(ws, username: str, private_key):
                     continue
 
 
+                # FILE_START
+                if t == "FILE_START":
+                    p = payload
+                    try:
+                        sender_pub = cu.deserialize_publickey(p["sender_pub"])
+
+                        # 验 manifest 签名（只对 manifest 原始字段）
+                        manifest_for_sig = {
+                            "file_id": p["file_id"],
+                            "name":    p["name"],
+                            "size":    p["size"],
+                            "mode":    p.get("mode", "dm-rsa"),
+                            "chunk":   p.get("chunk", 446),
+                        }
+                        ok = cu.verify_signature(
+                            sender_pub,
+                            cu.canonical_json(manifest_for_sig).encode("utf-8"),
+                            p["manifest_sig"]
+                        )
+                        if not ok:
+                            print("[FILE] manifest 签名无效，丢弃。");  continue
+
+                        out_name = f"{p['file_id']}_{p['name']}"
+                        out_path = os.path.join("Downloads", out_name)
+                        fh = open(out_path, "wb")
+
+                        incoming_files[p["file_id"]] = {
+                            "sender_pub": sender_pub,
+                            "name":       p["name"],
+                            "size":       p["size"],
+                            "fh":         fh,
+                            "received":   0,
+                            "dir":        "Downloads",
+                        }
+                        print(f"[FILE] 开始接收 {p['name']} -> {out_path}")
+                    except Exception as e:
+                        print("[FILE] FILE_START 异常：", e)
+                    continue
+                # FILE_CHUNK (RSA)
+                if t == "FILE_CHUNK":
+                    p = payload
+                    fid = p.get("file_id")
+                    st  = incoming_files.get(fid)
+                    if not st:
+                        print("[FILE] 未知的 file_id，忽略块。");  continue
+                    try:
+                        # 先验块签名：{file_id,index,ciphertext}
+                        chunk_info = {"file_id": fid, "index": p["index"], "ciphertext": p["ciphertext"]}
+                        ok = cu.verify_signature(
+                            st["sender_pub"],
+                            cu.canonical_json(chunk_info).encode("utf-8"),
+                            p["chunk_sig"]
+                        )
+                        if not ok:
+                            print("[FILE] chunk_sig 无效，丢弃该块。");  continue
+
+                        # 解密 & 写入
+                        ct  = cu.b64url_decode(p["ciphertext"])
+                        pt  = cu.rsa_oaep_decrypt(private_key, ct)  # private_key 是 run_shell() 传入的
+                        st["fh"].write(pt)
+                        st["received"] += len(pt)
+
+                        if st["size"]:
+                            prog = st["received"] * 100.0 / st["size"]
+                            print(f"[FILE] {st['name']} 进度：{prog:.1f}%")
+                    except Exception as e:
+                        print("[FILE] FILE_CHUNK 异常：", e)
+                    continue
+                # FILE_END
+                if t == "FILE_END":
+                    fid = payload.get("file_id")
+                    st  = incoming_files.pop(fid, None)
+                    if not st:
+                        print("[FILE] 未知的 file_id（END）。");  continue
+                    try:
+                        st["fh"].close()
+                        print(f"[FILE] 接收完成：{st['name']}（共 {st['received']} / {st['size']} bytes）")
+                    except Exception as e:
+                        print("[FILE] FILE_END 异常：", e)
+                    continue
+
+                
                 # ACK/ERROR 简洁输出
                 if t in ("ACK", "ERROR"):
                     print(f"[SERVER] {t}: {payload}")
