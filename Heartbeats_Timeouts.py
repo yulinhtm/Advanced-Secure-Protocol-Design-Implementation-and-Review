@@ -12,6 +12,10 @@ private_key = None
 sign_payload = None 
 
 
+local_users = {}      # user_id  -> ws
+user_locations = {}   # user_id  -> "local" | server_id
+
+
 # --- NEW: Heartbeat and Monitoring Functions ---
 
 async def send_heartbeats_periodically():
