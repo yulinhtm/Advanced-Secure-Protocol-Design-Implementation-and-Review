@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat — Simplified</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-grid">
+    <aside class="sidebar" aria-label="Chats list">
+      <header class="sidebar__header">
+        <h1>Chat</h1>
+      </header>
+      <div class="sidebar__section">ONLINE USERS</div>
+      <ul class="chat-list" id="online-users-list">
+        <li class="chat-item">
+            <div class="chat-item__main">
+                <span class="name">Connecting...</span>
+            </div>
+        </li>
+      </ul>
+    </aside>
+
+    <main class="main" aria-label="Conversation">
+      <header class="chat-header">
+        <div class="chat-peer">
+          <div class="avatar big">GC</div>
+          <div class="peer-meta">
+            <div class="peer-name">Global Chat</div>
+            <div class="peer-status">Public Channel</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="messages" id="messages-container" role="log" aria-live="polite">
+        <div class="divider"><span>Welcome!</span></div>
+      </section>
+
+      <footer class="composer" aria-label="Message composer">
+        <input class="input" id="message-input" type="text" placeholder="Write a message..." aria-label="Write a message" />
+        <button class="btn btn-send" id="send-button" title="Send">Send</button>
+      </footer>
+    </main>
+  </div>
+
+    <script>
+      // --- DOM 元素设置 (不变) ---
+      const messageInput = document.getElementById('message-input');
+      const sendButton = document.getElementById('send-button');
+      const messagesContainer = document.getElementById('messages-container');
+      const onlineUsersList = document.getElementById('online-users-list');
+
+      // --- 从 localStorage 获取用户信息 (不变) ---
+      const LOGGED_IN_USER_ID = localStorage.getItem('user_id');
+
+      // --- 如果未找到 user_id，则重定向到登录页面 (不变) ---
+      if (!LOGGED_IN_USER_ID) {
+        alert("You are not logged in. Redirecting to login page.");
+        window.location.href = 'login.html';
+      }
+      
+      // --- WebSocket 连接 ---
+      const ws = new WebSocket("ws://localhost:8765");
+
+      ws.onopen = () => {
+        console.log("Connected to the WebSocket server as user:", LOGGED_IN_USER_ID);
+        addSystemMessage("Connected to server.");
+        // 您可以在这里发送一个 USER_HELLO 消息来正式上线
+      };
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        console.log("Received message:", message);
+        
+        const sender = message.from || "Unknown";
+        const text = message.payload ? (message.payload.ciphertext || JSON.stringify(message.payload)) : (message.text || "No text");
+        
+        // 避免将自己发送的消息显示为传入消息
+        if (sender !== LOGGED_IN_USER_ID) {
+            addIncomingMessage(sender, text);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("Disconnected from the WebSocket server.");
+        addSystemMessage("Disconnected. Please refresh to reconnect.");
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+        addSystemMessage("Connection error.");
+      };
+
+      // --- UI 函数 (不变) ---
+      function addSystemMessage(text) { /* ... */ }
+      function addOutgoingMessage(text) { /* ... */ }
+      function addIncomingMessage(sender, text) { /* ... */ }
+      // (这些函数的具体实现和您原来的一样，这里省略以保持简洁)
+      function addSystemMessage(text) {
+          const dividerHtml = `<div class="divider"><span>${text}</span></div>`;
+          messagesContainer.insertAdjacentHTML('beforeend', dividerHtml);
+      }
+      function addOutgoingMessage(text) {
+        const bubbleHtml = `<article class="bubble-row me"><div class="bubble bubble-out"><div class="bubble-text">${text}</div></div></article>`;
+        messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+      function addIncomingMessage(sender, text) {
+          const senderInitial = sender.substring(sender.length - 2).toUpperCase();
+          const bubbleHtml = `<article class="bubble-row"><div class="avatar">${senderInitial}</div><div class="bubble bubble-in"><div class="bubble-text">${text}</div></div></article>`;
+          messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+
+
+      // --- 事件处理 ---
+      function sendMessage() {
+        const messageText = messageInput.value.trim();
+        if (messageText === '' || ws.readyState !== WebSocket.OPEN) return;
+
+        addOutgoingMessage(messageText);
+        
+        // 构建符合 SOCP v1.3 协议的消息 
+        const messageObject = {
+          "type": "MSG_PUBLIC_CHANNEL",
+          "from": LOGGED_IN_USER_ID,
+          "to": "public",
+          "ts": Date.now(),
+          "payload": {
+              "ciphertext": messageText,
+              "sender_pub": "base64url-encoded-pubkey-placeholder",
+              "content_sig": "signature-over-content-placeholder"
+          },
+          "sig": ""
+        };
+        
+        ws.send(JSON.stringify(messageObject));
+
+        messageInput.value = '';
+        messageInput.focus();
+      }
+
+      // 您原有的 sendButton 和 messageInput 的 addEventListener 代码保持不变
+      sendButton.addEventListener('click', sendMessage);
+      messageInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          sendMessage();
+        }
+      });
+
+      sendButton.addEventListener('click', sendMessage);
+      messageInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          sendMessage();
+        }
+      });
+  </script>
+</body>
+</html>
