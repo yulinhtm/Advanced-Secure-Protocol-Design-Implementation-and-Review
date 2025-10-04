@@ -10,25 +10,19 @@ import os
 # import function that in crypto_utils.py
 from crypto_utils import *
 
-# Generate RSA-4096 key pair
-private_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=4096
-)
+private_key, public_key = load_rsa_keys_from_files("IntroducerStorage/introducer_private_key.der", "IntroducerStorage/introducer_public_key.der", 'my-password')
 
-# Extract public key
-public_key = private_key.public_key()
-
-# Serialize public key to DER (binary)
-der_bytes = public_key.public_bytes(
-    encoding=serialization.Encoding.DER,
+# Serialize to PEM
+pem_bytes = public_key.public_bytes(
+    encoding=serialization.Encoding.PEM,
     format=serialization.PublicFormat.SubjectPublicKeyInfo
 )
 
-# Convert to base64url without padding (BASE64URL format)
-pub_b64url = base64.urlsafe_b64encode(der_bytes).rstrip(b'=').decode('ascii')
+# Convert to a single line Base64 string
+pem_str = pem_bytes.decode("utf-8")
+# Remove headers/footers and newlines
+pem_clean = "".join(pem_str.strip().splitlines()[1:-1])
 
 print("BASE64URL(RSA-4096-PUB):")
-print(pub_b64url)
-print("Hi1")
+print(pem_clean)
 

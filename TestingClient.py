@@ -78,6 +78,7 @@ async def register(ws, username: str, password: str):
         print("Signature is valid\n")
         if response.get("type") == "ACK":
             print("Server responded with ACK")
+            SERVER_ID = response.get("from")
             registerSuccess = True
             safe_filename = hashlib.sha256(username.encode()).hexdigest()
             save_rsa_keys_to_files(private_key, public_key, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
@@ -128,6 +129,7 @@ async def login(ws, username: str, password: str):
         print("Signature is valid\n")
         if response.get("type") == "ACK":
             print("Server responded with ACK")
+            SERVER_ID = response.get("from")
             loginSuccess = True
             if newClient:
                 safe_filename = hashlib.sha256(username.encode()).hexdigest()
