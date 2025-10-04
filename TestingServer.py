@@ -270,52 +270,6 @@ async def handle_connection(ws):
     except Exception:
         traceback.print_exc()
 
-# --- NEW: Heartbeat and Monitoring Functions ---
-
-async def send_heartbeats_periodically():
-    """Periodically sends HEARTBEAT messages to all connected servers."""
-    while True:
-        await asyncio.sleep(15) # Send every 15 seconds
-        print(f"[{time.ctime()}] Sending heartbeats to {len(servers)} servers...")
-        # Use list(servers.items()) to avoid "dictionary changed size during iteration" error
-        for server_id, ws in list(servers.items()):
-            try:
-                heartbeat_msg = {
-                    "type": "HEARTBEAT",
-                    "from": SERVER_ID,
-                    "to": server_id,
-                    "ts": int(time.time() * 1000),
-                    "payload": {},
-                }
-                heartbeat_msg["sig"] = sign_payload(heartbeat_msg["payload"], private_key)
-                await ws.send(json.dumps(heartbeat_msg))
-            except websockets.ConnectionClosed:
-                print(f"Failed to send heartbeat to {server_id}, connection is already closed.")
-                # The monitoring task will handle the final cleanup and reconnect logic
-            except Exception as e:
-                print(f"Error sending heartbeat to {server_id}: {e}")
-
-async def monitor_connections_periodically():
-    """Monitors server connections and handles timeouts."""
-    while True:
-        await asyncio.sleep(10) # Check every 10 seconds
-        current_time_ms = int(time.time() * 1000)
-        
-        # Use list(servers.keys()) to avoid "dictionary changed size during iteration" error
-        for server_id in list(servers.keys()):
-            last_seen = last_seen_times.get(server_id)
-            if last_seen and (current_time_ms - last_seen) > 45000: # 45-second timeout
-                print(f"Connection to server {server_id} timed out. Closing connection.")
-                
-                ws = servers.pop(server_id, None)
-                last_seen_times.pop(server_id, None)
-                
-                if ws and ws.open:
-                    await ws.close()
-                
-                # IMPORTANT: Here you would add logic to attempt reconnection to server_id
-                # e.g., asyncio.create_task(reconnect_to_server(server_id))
-                print(f"TODO: Implement reconnection logic for {server_id}")
 
 
 
