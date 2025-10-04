@@ -172,7 +172,7 @@ async def run_shell(ws, username: str, private_key):
                 t = msg.get("type")
                 payload = msg.get("payload", {})
 
-                # 1) 美化 /list 响应
+                # /list 响应
                 if t == "LIST_RESPONSE":
                     users = payload.get("users", [])
                     if users:
@@ -183,33 +183,78 @@ async def run_shell(ws, username: str, private_key):
                         print("[/list] 当前没有可见的在线用户。")
                     continue
 
-                # 2) 私聊投递（服务器只转发不解密）
-                if t in ("USER_DELIVER", "SERVER_DELIVER", "MSG_DIRECT_DELIVER"):
+
+                # 公共频道（/all）：AES-GCM 密文
+                if t in ("USER_DELIVER", "SERVER_DELIVER") \
+                and "ciphertext" in payload and "iv" in payload and "tag" in payload:
+                    try:
+                        sender_pub = cu.deserialize_publickey(payload["sender_pub"])
+                        ct_b64     = payload["ciphertext"]
+
+                        # 验“内容签名”：优先用 payload 里随签名带的字段
+                        s_from = payload.get("sig_from") or payload.get("sender") or msg.get("from")
+                        s_ts   = payload.get("sig_ts")   or msg.get("ts")
+
+                        import hashlib
+                        dg = hashlib.sha256((ct_b64 + s_from + str(s_ts)).encode("utf-8")).digest()
+                        if not cu.verify_signature(sender_pub, dg, payload.get("content_sig", "")):
+                            print("[ALL] 密文签名校验失败，已丢弃。")
+                            continue
+
+                        # key share 还没做时的提示
+                        shares = payload.get("shares") or {}
+                        enc_key_b64 = shares.get(user_id)
+                        if not enc_key_b64:
+                            print("[ALL] 收到 AES 密文，但缺少对我的 key share，暂无法解密。")
+                            continue
+
+                        # 将来加了 key share 再解开下面：
+                        # aes_key = cu.rsa_oaep_decrypt(private_key, cu.b64url_decode(enc_key_b64))
+                        # pt = cu.aes_gcm_decrypt(
+                        #         aes_key,
+                        #         cu.b64url_decode(payload["iv"]),
+                        #         cu.b64url_decode(payload["tag"]),
+                        #         cu.b64url_decode(ct_b64)
+                        #      ).decode("utf-8")
+                        # print(f"[ALL:{msg.get('to')}] {s_from}: {pt}")
+
+                    except Exception as e:
+                        print("[ALL] 处理异常：", e)
+                    continue
+
+
+                # 私聊（/tell）：RSA-OAEP 密文（没有 iv/tag）
+                if t in ("USER_DELIVER", "SERVER_DELIVER", "MSG_DIRECT_DELIVER") \
+                and "ciphertext" in payload and "iv" not in payload and "tag" not in payload:
+
                     ct_b64       = payload.get("ciphertext")
                     sender_pub64 = payload.get("sender_pub")
                     content_sig  = payload.get("content_sig")
 
-                    # 关键：优先用 payload 里的签名字段
+                    # 优先用 payload 里随签名带的字段
                     s_from = payload.get("sig_from") or payload.get("sender") or msg.get("from")
                     s_to   = payload.get("sig_to")   or msg.get("to")
                     s_ts   = payload.get("sig_ts")   or msg.get("ts")
 
                     if not (ct_b64 and sender_pub64 and content_sig and s_from and s_to and s_ts is not None):
-                        print("[DM] 收到的消息字段不完整：", msg); continue
+                        print("[DM] 收到的消息字段不完整：", msg);  continue
 
                     try:
                         sender_pub = cu.deserialize_publickey(sender_pub64)
-                        digest = hashlib.sha256((ct_b64 + s_from + s_to + str(s_ts)).encode("utf-8")).digest()
-                        if not cu.verify_signature(sender_pub, digest, content_sig):
-                            print("[DM] 验签失败，已丢弃。"); continue
+                        import hashlib
+                        dg = hashlib.sha256((ct_b64 + s_from + s_to + str(s_ts)).encode("utf-8")).digest()
+                        if not cu.verify_signature(sender_pub, dg, content_sig):
+                            print("[DM] 验签失败，已丢弃。");  continue
 
                         pt = cu.rsa_oaep_decrypt(private_key, cu.b64url_decode(ct_b64)).decode("utf-8")
                         print(f"[DM] {s_from} → {s_to}: {pt}")
+
                     except Exception as e:
                         print("[DM] 解密/验签异常：", e)
                     continue
 
-                # 3) ACK/ERROR 简洁输出
+
+                # ACK/ERROR 简洁输出
                 if t in ("ACK", "ERROR"):
                     print(f"[SERVER] {t}: {payload}")
                     continue

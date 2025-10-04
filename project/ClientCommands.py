@@ -202,24 +202,48 @@ class ClientCommands:
         }
         await self.ws.send(json.dumps(end_msg))
 
-    # ---------------- optional demo /all (UNSAFE) ----------------
-    async def do_all_demo_broadcast(self, plaintext: str, group_id: str = "public"):
+    async def do_all(self, plaintext: str, group_id: str = "public"):
         """
-        DEMO ONLY: broadcast plaintext (not secure). Prefer implementing channel keys.
+        /all - AES-GCM 加密的公共频道消息（SOCP §12: sign SHA256(ciphertext||from||ts)）
+        说明：这一步只更换成密文格式；还未分发 AES 密钥（Key Share）。
         """
-        ts = _now_ms()
+        ts = cu.int_ts_ms()
+        from_uid = self.user_id
+
+        # 生成一次性 AES-256 密钥与 12 字节随机 IV
+        aes_key = os.urandom(32)   # 256-bit
+        iv      = os.urandom(12)   # GCM 推荐 96-bit IV
+
+        # 加密
+        ct, tag = cu.aes_gcm_encrypt(aes_key, iv, plaintext.encode("utf-8"))
+
+        # content_sig：对密文签名（公共频道没有单一 to，按 §12 使用 ciphertext||from||ts）
+        ct_b64 = cu.b64url_encode(ct)
+        dg     = hashlib.sha256((ct_b64 + from_uid + str(ts)).encode("utf-8")).digest()
+        content_sig = cu.sign_payload(self.privkey, dg)
+
         payload = {
-            "plaintext": plaintext,
-            "sender_pub": cu.serialize_publickey(self.privkey.public_key())
+            "ciphertext":  ct_b64,
+            "iv":          cu.b64url_encode(iv),
+            "tag":         cu.b64url_encode(tag),
+            "sender_pub":  cu.serialize_publickey(self.privkey.public_key()),
+            "content_sig": content_sig,
+            "sig_from":    from_uid,
+            "sig_ts":      ts,
+
+            # 预留：key share（下一步实现时填充）
+            # "shares": { "<user_id>": "<rsa_oaep(aes_key) b64url>" , ... }
         }
+
         env = {
             "type": "MSG_PUBLIC_CHANNEL",
-            "from": self.user_id,
-            "to": group_id,
-            "ts": ts,
+            "from": from_uid,
+            "to":   group_id,
+            "ts":   ts,
             "payload": payload
         }
         await self.ws.send(json.dumps(env))
+        print(f"[/all] 已广播到 {group_id}（AES-GCM 密文；尚未分发 key）")
 
     # ---------------- low-level send ----------------
     async def send_envelope(self, env: dict, attach_transport_sig: bool = False):

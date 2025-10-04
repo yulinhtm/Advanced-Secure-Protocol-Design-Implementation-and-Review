@@ -5,6 +5,7 @@ import re
 import time
 import hashlib
 import string
+import os
 from typing import Dict, Any, Tuple, Optional
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -247,7 +248,6 @@ def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
 
 
 # === salt + 私钥加密（客户端 register 用） ===
-import os
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 def random_salt(n: int = 16) -> str:
@@ -266,6 +266,32 @@ def encrypt_private_key(priv: rsa.RSAPrivateKey, password: str, salt_b64: str) -
     )
     return b64url_encode(pem)
 
+
+# --- AES-GCM helpers ---
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+def aes_gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes, aad: bytes | None = None) -> tuple[bytes, bytes]:
+    encryptor = Cipher(algorithms.AES(key), modes.GCM(iv)).encryptor()
+    if aad:
+        encryptor.authenticate_additional_data(aad)
+    ct = encryptor.update(plaintext) + encryptor.finalize()
+    return ct, encryptor.tag
+
+def aes_gcm_decrypt(key: bytes, iv: bytes, tag: bytes, ciphertext: bytes, aad: bytes | None = None) -> bytes:
+    decryptor = Cipher(algorithms.AES(key), modes.GCM(iv, tag)).decryptor()
+    if aad:
+        decryptor.authenticate_additional_data(aad)
+    pt = decryptor.update(ciphertext) + decryptor.finalize()
+    return pt
+
+def b64url_encode(b: bytes) -> str:
+    import base64
+    return base64.urlsafe_b64encode(b).decode("utf-8").rstrip("=")
+
+def b64url_decode(s: str) -> bytes:
+    import base64
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
 
 
 # ====================== 工具函数 ======================    
