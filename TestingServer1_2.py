@@ -15,8 +15,8 @@ import crypto_utils as cu
 
 # ===================== 配置 =====================
 HOST = "localhost"
-PORT = 8766
-SERVER_NAME = "server-1"
+PORT = 8765
+SERVER_NAME = "server-2"
 
 # import os
 # HOST = os.environ.get("SERVER_HOST", "localhost")
