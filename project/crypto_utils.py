@@ -205,6 +205,55 @@ def create_ack_list_message(private_key: rsa.RSAPrivateKey, msg_ref: str,content
     
     return message
 
+
+def create_error_message(private_key: rsa.RSAPrivateKey, code: str, reason: str, server_id: str, to_user: str = "no_user_id") -> dict:
+
+    # Build payload
+    payload = {
+        "code": code,
+        "reason": reason
+    }
+    
+    # Canonicalize payload
+    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+    
+    # Sign the payload
+    signature_b64url = sign_payload(private_key, canonical_bytes)
+    
+    # Construct message
+    message = {
+        "type": "ERROR",
+        "from": server_id,
+        "to": to_user,
+        "payload": payload,
+        "sig": signature_b64url
+    }
+    return message
+
+
+def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: str, to_user: str) -> dict:
+    # Build payload
+    payload = {
+        "msg_ref": msg_ref
+    }
+    
+    # Canonicalize payload
+    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+    
+    # Sign the payload
+    signature_b64url = sign_payload(private_key, canonical_bytes)
+    
+    # Construct message
+    message = {
+        "type": "ACK",
+        "from": server_id,
+        "to": to_user,
+        "payload": payload,
+        "sig": signature_b64url
+    }
+    
+    return message
+
 # ====================== 验证密码是否强壮 ======================
 
 def is_strong_password(password: str) -> bool:

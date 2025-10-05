@@ -6,6 +6,9 @@ import traceback
 import yaml
 import time
 
+# top of file
+import argparse, os
+
 from cryptography.hazmat.primitives import serialization
 
 import crypto_utils as cu
@@ -28,6 +31,24 @@ server_addrs = {}     # server_id -> (host, port)
 server_users = {}
 local_users = {}      # user_id  -> ws
 user_locations = {}   # user_id  -> "local" | server_id
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--host", default=os.getenv("SRV_HOST", "localhost"))     # listen host
+    p.add_argument("--addr", default=os.getenv("SRV_ADDR", "127.0.0.1"))     # advertised address
+    p.add_argument("--port", type=int, default=int(os.getenv("SRV_PORT", "8765")))
+    p.add_argument("--name", default=os.getenv("SRV_NAME", "server-1"))
+    p.add_argument("--bootstrap", default=os.getenv("BOOTSTRAP_YAML", "bootstrap_servers.yaml"))
+    return p.parse_args()
+
+args = parse_args()
+
+HOST = args.host
+SERVER_ADDRESS = args.addr
+SERVER_PORT = str(args.port)      # keep type consistent with your code
+SERVER_NAME = args.name
+BOOTSTRAP_YAML = args.bootstrap
 
 # ===================== 数据库 =====================
 DB = "user.db"
@@ -164,13 +185,22 @@ async def bootstrap_to_introducer(introducer):
                     assigned_id = payload.get("assigned_id")
                     server_list = payload.get("clients", [])
                     SERVER_ID = assigned_id
+                    print("server_list")
+                    print(server_list)
                     for client in server_list:
                         # Ensure client is a dictionary
+                        print("client")
+                        print(client)
                         if isinstance(client, dict):
                             user_id = client.get("user_id")
                             host = client.get("host")
                             port = client.get("port")
                             pubkey = client.get("pubkey")
+                            print("user_id")
+                            print(user_id) 
+                            print(host) 
+                            print(port) 
+                            print(pubkey)
 
                             # Only store if user_id, host, and port exist
                             if user_id and host and port:
@@ -213,65 +243,84 @@ async def bootstrap_from_yaml(yaml_path="bootstrap_servers.yaml"):
     print("Failed to connect to all introducers.")
     return False
 
-async def broadcast_server_announce( private_key, pubkey_str):
+async def broadcast_server_announce(private_key, pubkey_str):
     Success = True
+    print("Now checking existing server")
+    print(server_addrs)
     for server_id, info in server_addrs.items():
         try:
-            host = info.get("host")  # safer access
-            port = info.get("port")
-            uri = f"ws://{host}:{int(port)}"
-            async with websockets.connect(uri) as ws:
-                payload_fields = {
-                    "host": SERVER_ADDRESS,  # your server's IP
-                    "port": SERVER_PORT,  # your server's WS port
-                    "pubkey": pubkey_str
-                }
+            host = info.get("host")
+            port = int(info.get("port"))
+            uri = f"ws://{host}:{port}"
+            print("Sending message to other server " + uri)
 
-                # Encrypt payload if needed
-                encrypted_payload = cu.encrypt_payload_fields(payload_fields, server_pubkeys[server_id], MAX_RSA_PLAINTEXT)
-                
-                # Prepare signature
-                canonical_bytes = json.dumps(encrypted_payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
-                sig = cu.sign_payload(private_key, canonical_bytes)
+            # ① 不要用 async with；手动建立长连接
+            ws = await websockets.connect(
+                uri,
+                ping_interval=15,   # 保活
+                ping_timeout=10,
+                close_timeout=5
+            )
 
-                announce_msg = {
-                    "type": "SERVER_ANNOUNCE",
-                    "from": SERVER_ID,
-                    "to": server_id,
-                    "ts": int(time.time() * 1000),
-                    "payload": encrypted_payload,
-                    "sig": sig
-                }
+            # （可选）把这条“拨出的长连接”存起来以便复用
+            servers[server_id] = ws
 
-                await ws.send(json.dumps(announce_msg))
-                print(f"SERVER_ANNOUNCE sent to {server_id} at {host}:{port}")
-                
-                response_raw = await ws.recv()
-                try:
-                    response = json.loads(response_raw)     # convert to dict
-                except json.JSONDecodeError:
-                    print("Invalid JSON received:", response_raw)
-                    Success = False
-                
-                payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
+            payload_fields = {
+                "host": SERVER_ADDRESS,
+                "port": SERVER_PORT,
+                "pubkey": pubkey_str
+            }
+            target_pubkey = cu.deserialize_publickey(server_pubkeys[server_id])
+            encrypted_payload = cu.encrypt_payload_fields(payload_fields, target_pubkey, MAX_RSA_PLAINTEXT)
+            canonical_bytes = json.dumps(encrypted_payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+            sig = cu.sign_payload(private_key, canonical_bytes)
 
-                if cu.verify_json_signature(server_pubkeys[server_id], payload_extracted, sig_extracted):
-                    print("Signature is valid\n")
-                    if response.get("type") == "ACK":
-                        print("Server responded with ACK")
-                        print("Server response:", payload_extracted) 
-                        servers[server_id] = ws
-                    else:
-                        print("Server response:", payload_extracted)
-                        Success = False
+            announce_msg = {
+                "type": "SERVER_ANNOUNCE",
+                "from": SERVER_ID,
+                "to": server_id,
+                "ts": int(time.time() * 1000),
+                "payload": encrypted_payload,
+                "sig": sig
+            }
+
+            await ws.send(json.dumps(announce_msg))
+            print(f"SERVER_ANNOUNCE sent to {server_id} at {host}:{port}")
+
+            # ② 在这条“拨出的连接”上收 ACK（注意：不要和别的协程同时在同一 ws 上 recv）
+            response_raw = await asyncio.wait_for(ws.recv(), timeout=5)
+            response = json.loads(response_raw)
+            payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
+
+            if cu.verify_json_signature(target_pubkey, payload_extracted, sig_extracted):
+                print("Signature is valid\n")
+                if response.get("type") == "ACK":
+                    print("Server responded with ACK")
+                    print("Server response:", payload_extracted)
+                    # 已经存过 servers[server_id] = ws，可继续复用
                 else:
-                    print("Signature is INVALID")
+                    print("Server response:", payload_extracted)
                     Success = False
+            else:
+                print("Signature is INVALID")
+                Success = False
+
+            # ③ 不要在这里关闭 ws；要复用就留着
+            # 如果你不想复用，在这里主动关闭也行：await ws.close()
 
         except Exception as e:
             print(f"Failed to send SERVER_ANNOUNCE to {server_id} at {host}:{port}: {e}")
             Success = False
+            # 失败就清理掉失效连接
+            if servers.get(server_id) is not None:
+                try:
+                    await servers[server_id].close()
+                except Exception:
+                    pass
+                servers.pop(server_id, None)
+
     return Success
+
     
 
 def get_display_name(user_id: str) -> str:
@@ -413,12 +462,79 @@ async def sending_existing_user(ws):
     await ws.send(json.dumps(ack_msg))
     print("Have already sent existing user")
 
+async def user_advertise(the_user_id, meta, pubkey_str):
+    for to_server_id, ws in servers.items():
+
+        payload_fields = {
+            "user_id": the_user_id, 
+            "server_id": SERVER_ID, 
+            "meta": meta,
+            "pubkey":pubkey_str
+        }
+
+        canonical_bytes = json.dumps(payload_fields, sort_keys=True, separators=(',', ':')).encode("utf-8")
+        sig = cu.sign_payload(private_key, canonical_bytes)
+
+        advertise_msg = {
+            "type": "USER_ADVERTISE",
+            "from": SERVER_ID,
+            "to": to_server_id,
+            "ts": int(time.time() * 1000),
+            "payload": payload_fields,
+            "sig": sig
+        }
+
+        print("Json compleyte, now send...")
+        await ws.send(json.dumps(advertise_msg))
+
+    print("End sending")
+            
+async def user_remove(the_user_id):
+    for to_server_id, ws in servers.items():
+        payload_fields = {
+            "user_id": the_user_id, 
+            "server_id": SERVER_ID, 
+        }
+
+        canonical_bytes = json.dumps(payload_fields, sort_keys=True, separators=(',', ':')).encode("utf-8")
+        sig = cu.sign_payload(private_key, canonical_bytes)
+
+        advertise_msg = {
+            "type": "USER_REMOVE",
+            "from": SERVER_ID,
+            "to": to_server_id,
+            "ts": int(time.time() * 1000),
+            "payload": payload_fields,
+            "sig": sig
+        }
+
+        await ws.send(json.dumps(advertise_msg))
+        
+        response_raw = await ws.recv()
+        try:
+            response = json.loads(response_raw)     # convert to dict
+        except json.JSONDecodeError:
+            print("Invalid JSON received:", response_raw)
+        
+        payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
+
+        if cu.verify_json_signature(server_pubkeys[to_server_id], payload_extracted, sig_extracted):
+            print("Signature is valid\n")
+            if response.get("type") == "ACK":
+                print("Valid response from introducer:", response.get("type"))
+                
+            elif response.get("type") == "ERROR":
+                print("Introducer returned an error:", response.get("message"))
+        else:
+            print("Signature is INVALID")
+
 # ===================== 连接处理 =====================
 async def handle_connection(ws):
     try:
         async for raw in ws:
             try:
                 msg = json.loads(raw)
+                print(msg)
             except json.JSONDecodeError:
                 await ws.send(json.dumps(create_error("*", "INVALID_JSON", "JSON decoding failed")))
                 continue
@@ -472,6 +588,7 @@ async def handle_connection(ws):
                 # ACK
                 await sending_existing_user(ws)
                 await broadcast_user_online(meta, user_id, pubkey)
+                await user_advertise(user_id, meta, pubkey)
                 print(f"[REGISTER] user {user_id} ({display_name}) registered")
 
             elif mtype == "SERVER_ANNOUNCE":
@@ -493,9 +610,10 @@ async def handle_connection(ws):
 
                 announced_host = payload.get("host")
                 announced_port = payload.get("port")
-                announced_pubkey = payload.get("pubkey")
+                announced_pubkey_str = payload.get("pubkey")
 
                 payload_extracted, sig_extracted = cu.extract_payload_and_signature(msg)
+                announced_pubkey = cu.deserialize_publickey(announced_pubkey_str)
                 if cu.verify_json_signature(announced_pubkey, payload_extracted, sig_extracted):
                     print(f"SERVER_ANNOUNCE from {announcing_server_id} signature is valid")
                 else:
@@ -564,22 +682,178 @@ async def handle_connection(ws):
                 meta = {"display_name": display_name}
                 pubkey_str = get_user_pubkey(user_id)
                 await broadcast_user_online(meta, user_id, pubkey_str)
+                await user_advertise(user_id, meta, pubkey)
                 print(f"[LOGIN] user {user_id} logged in")
 
+
+            elif mtype == "USER_ADVERTISE":
+                print("Message fromother server advertising user...")
+                advertising_server_id = msg.get("from")
+                payload = msg.get("payload", {})
+                pubkey = server_pubkeys.get(advertising_server_id)
+                if pubkey is not None:
+                    print("Found pubkey:", pubkey)
+                else:
+                    print("Server ID not found")
+                    error_message = cu.create_error_message(private_key, "SERVER_NOT_REG", "Unknown server request", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                if not payload:
+                    error_message = cu.create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                announced_user_id = payload.get("user_id")
+                announced_server_id = payload.get("server_id")
+                announced_meta = payload.get("meta")
+                announced_user_pubkey = payload.get("pubkey")
+
+                payload_extracted, sig_extracted = cu.extract_payload_and_signature(msg)
+                if cu.verify_json_signature(pubkey, payload_extracted, sig_extracted):
+                    print(f"SERVER_ANNOUNCE from {advertising_server_id} signature is valid")
+                else:
+                    print(f"SERVER_ANNOUNCE from {advertising_server_id} signature is INVALID")
+                    error_message = cu.create_error_message(private_key, "INVALID_SIG", "Invalid signiture", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
                 
+                if announced_user_id in servers:
+                    print(f"Server ID {announced_user_id} already exists.")
+                    error_message = cu.create_error_message(private_key, "NAME_IN_USE", "This user already exist in network", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                else:
+                    print(f"Server ID {advertising_server_id} is new.")
+                    
+                server_users[announced_user_id] = {
+                    "meta": announced_meta,
+                    "pubkey": announced_user_pubkey
+                }
+                user_locations[announced_user_id] = announced_server_id
+                
+                # ACK
+                print("hello1")
+                await broadcast_user_online(announced_meta, announced_user_id, announced_user_pubkey)
+                print("hello2")
+                ack_msg = cu.create_ack_message(private_key, "USER_ADVERTISE", SERVER_ID, advertising_server_id)
+                print("hello3")
+                await ws.send(json.dumps(ack_msg))
+
+                print(f"{announced_user_id} add in  successfully")
+                
+            elif mtype == "USER_REMOVE":
+                advertising_server_id = msg.get("from")
+                payload = msg.get("payload", {})
+                pubkey = server_pubkeys.get(advertising_server_id)
+                if pubkey is not None:
+                    print("Found pubkey:", pubkey)
+                else:
+                    print("Server ID not found")
+                    error_message = cu.create_error_message(private_key, "SERVER_NOT_REG", "Unknown server request", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+                if not payload:
+                    error_message = cu.create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+
+
+                remove_user_id = payload.get("user_id")
+                remove_server_id = payload.get("server_id")
+
+                payload_extracted, sig_extracted = cu.extract_payload_and_signature(msg)
+                if cu.verify_json_signature(pubkey, payload_extracted, sig_extracted):
+                    print(f"SERVER_ANNOUNCE from {advertising_server_id} signature is valid")
+                else:
+                    print(f"SERVER_ANNOUNCE from {advertising_server_id} signature is INVALID")
+                    error_message = cu.create_error_message(private_key, "INVALID_SIG", "Invalid signiture", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                    
+                    
+                if remove_user_id in server_users:
+                    # Remove from server_users
+                    del server_users[announced_user_id]
+                    
+                    # Remove from user_locations if it exists there
+                    if remove_user_id in user_locations:
+                        del user_locations[announced_user_id]
+                    
+                    print(f"User {announced_user_id} removed successfully.")
+                else:
+                    print(f"User {announced_user_id} does not exist in server_users.")
+                    error_message = cu.create_error_message(private_key, "USER_NOT_EXIST", "There is no such user in the network", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
+                
+                # ACK
+                await broadcast_user_offline_username(remove_user_id)
+                ack_msg = cu.create_ack_message(private_key, "USER_REMOVE", SERVER_ID, announcing_server_id)
+                await ws.send(json.dumps(ack_msg))
+
+                print(f"{announced_user_id} remove in  successfully")
+                
+            elif mtype == "SERVER_DELIVER":
+                from_server = msg.get("from")
+                payload = msg.get("payload", {}) or {}
+
+                try:
+                    pubkey_str = server_pubkeys.get(from_server)
+                    if pubkey_str:
+                        from_server_pub = cu.deserialize_publickey(pubkey_str)
+                        payload_extracted, sig_extracted = cu.extract_payload_and_signature(msg)
+                        if not cu.verify_json_signature(from_server_pub, payload_extracted, sig_extracted):
+                            err = cu.create_error_message(private_key, "INVALID_SIG",
+                                                        "server deliver signature invalid",
+                                                        SERVER_ID, from_server)
+                            await ws.send(json.dumps(err))
+                            continue
+                except Exception:
+                    err = cu.create_error_message(private_key, "INVALID_SIG",
+                                                "server deliver signature invalid",
+                                                SERVER_ID, from_server)
+                    await ws.send(json.dumps(err))
+                    continue
+
+                target_uid = payload.get("user_id") or payload.get("sig_to")
+                if not target_uid or target_uid not in local_users:
+                    err = cu.create_error_message(private_key, "USER_NOT_FOUND",
+                                                f"{target_uid} not on this server",
+                                                SERVER_ID, from_server)
+                    await ws.send(json.dumps(err))
+                    continue
+
+                deliver_type = payload.get("mtype", "USER_DELIVER")
+
+                deliver_env = {
+                    "type": deliver_type,
+                    "from": SERVER_ID,
+                    "to":   target_uid,
+                    "ts":   cu.int_ts_ms(),
+                    "payload": payload,
+                }
+                deliver_env["sig"] = cu.sign_payload(private_key, cu.canonical_json(payload).encode("utf-8"))
+
+                try:
+                    await ws_send(local_users[target_uid], json.dumps(deliver_env))
+                except Exception:
+                    traceback.print_exc()
+
 
             # ---------------- 命令分发 ----------------
             elif mtype == "LIST_REQUEST":
                 await handlers.handle_list_request(msg, ws)
 
             elif mtype == "MSG_DIRECT":
-                await handlers.handle_msg_direct(msg, ws)
+                await handlers.handle_msg_direct(msg, ws, server_addrs)
 
             elif mtype == "MSG_PUBLIC_CHANNEL":
-                await handlers.handle_msg_public(msg, ws)
+                await handlers.handle_msg_public(msg, ws, server_addrs)
 
             elif mtype and mtype.startswith("FILE_"):
-                await handlers.handle_file_transfer(msg, ws)
+                await handlers.handle_file_transfer(msg, ws, server_addrs)
 
             else:
                 to_user = msg.get("from") or "*"

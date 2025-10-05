@@ -5,6 +5,9 @@ import uuid
 import time
 import crypto_utils as cu
 
+# top of file
+import argparse, os
+
 #config
 Server_Name = "introducer-1"
 
@@ -18,6 +21,16 @@ servers = {}
 
 def generate_server_id():
     return str(uuid.uuid4())
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--host", default=os.getenv("INTRO_HOST", "127.0.0.1"))
+    p.add_argument("--port", type=int, default=int(os.getenv("INTRO_PORT", "5001")))
+    return p.parse_args()
+
+args = parse_args()
+SERVER_ADDRESS = args.host
+SERVER_PORT = str(args.port)  # keep as str if the rest of your code expects str
 
 
 # Handle incoming connections
@@ -90,7 +103,7 @@ async def handle_connection(ws):
             
             payload_fields = {
                 "assigned_id": str(new_server_id),
-                "clients": json.dumps(clients)
+                "clients": clients
             }
 
             encrypted_payload = cu.encrypt_payload_fields(payload_fields, new_pubkey, MAX_RSA_PLAINTEXT)

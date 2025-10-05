@@ -5,6 +5,8 @@ import base64
 import hashlib
 import os
 
+import argparse, os
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -15,6 +17,17 @@ SERVER_URL = "ws://localhost:8765"
 MAX_RSA_PLAINTEXT = 446  # RSA-4096 + OAEP(SHA-256) 的明文上限
 user_list = {}
 SERVER_ID = cu.generate_user_id("server-1")
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--url", default=os.getenv("CLI_SERVER_URL", "ws://localhost:8765"))
+    return p.parse_args()
+
+args = parse_args()
+SERVER_URL = args.url
+
+
 # ===== 工具：加载服务器公钥（用于注册/登录加密；没有也能跑） =====
 def load_server_pubkey():
     try:
@@ -255,8 +268,21 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                 if t in ("USER_OFFLINE", "USER_REMOVE"):
                     p = payload or {}
                     meta = p.get("meta") or {}
-                    name = p.get("username") or meta.get("username") or p.get("display_name")
+                    # 兼容字段名：优先 username / display_name
+                    name = p.get("username") or meta.get("username") or p.get("display_name") or meta.get("display_name")
                     uid  = p.get("user_id")
+
+                    # 验证服务器签名（无签名或验签失败则忽略这条广播）
+                    if not cu.verify_json_signature(server_pubkey, p, msg.get("sig", "")):
+                        continue
+
+                    # 从本地 user_list 移除
+                    if uid and uid in user_list:
+                        # 若本地记录了名字，用本地的（更稳）
+                        name = user_list.get(uid, name)
+                        user_list.pop(uid, None)
+
+                    # 友好提示
                     if name:
                         print(f"[notice] 用户下线：{name}")
                     elif uid:
@@ -267,46 +293,30 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
 
 
                 # 公共频道（/all）：AES-GCM 密文
-                if t in ("USER_DELIVER", "SERVER_DELIVER") \
-                and "ciphertext" in payload and "iv" in payload and "tag" in payload:
+                if t == "MSG_PUBLIC_CHANNEL":
+                    p = payload or {}
+
                     try:
-                        sender_pub = cu.deserialize_publickey(payload["sender_pub"])
-                        ct_b64     = payload["ciphertext"]
-
-                        # 验“内容签名”：优先用 payload 里随签名带的字段
-                        s_from = payload.get("sig_from") or payload.get("sender") or msg.get("from")
-                        s_ts   = payload.get("sig_ts")   or msg.get("ts")
-
                         import hashlib
-                        dg = hashlib.sha256((ct_b64 + s_from + str(s_ts)).encode("utf-8")).digest()
-                        if not cu.verify_signature(sender_pub, dg, payload.get("content_sig", "")):
-                            print("[ALL] 密文签名校验失败，已丢弃。")
+                        text     = p.get("text", "")
+                        sig_from = p.get("sig_from")           
+                        sig_ts   = p.get("sig_ts")             
+                        spub     = cu.deserialize_publickey(p["sender_pub"])
+                        dg = hashlib.sha256((text + sig_from + str(sig_ts)).encode("utf-8")).digest()
+                        if not cu.verify_signature(spub, dg, p.get("content_sig", "")):
+                            print("[ALL] 验签失败，消息已丢弃。")
                             continue
-
-                        # key share 还没做时的提示
-                        shares = payload.get("shares") or {}
-                        enc_key_b64 = shares.get(user_id)
-                        if not enc_key_b64:
-                            print("[ALL] 收到 AES 密文，但缺少对我的 key share，暂无法解密。")
-                            continue
-
-                        # 将来加了 key share 再解开下面：
-                        # aes_key = cu.rsa_oaep_decrypt(private_key, cu.b64url_decode(enc_key_b64))
-                        # pt = cu.aes_gcm_decrypt(
-                        #         aes_key,
-                        #         cu.b64url_decode(payload["iv"]),
-                        #         cu.b64url_decode(payload["tag"]),
-                        #         cu.b64url_decode(ct_b64)
-                        #      ).decode("utf-8")
-                        # print(f"[ALL:{msg.get('to')}] {s_from}: {pt}")
-
                     except Exception as e:
-                        print("[ALL] 处理异常：", e)
+                        print("[ALL] 验签异常：", e)
+                        continue
+
+                    name = p.get("sender") or "someone"     
+                    print(f"[ALL] {name}: {p.get('text','')}")
                     continue
 
 
                 # 私聊（/tell）：RSA-OAEP 密文（没有 iv/tag）
-                if t in ("USER_DELIVER", "SERVER_DELIVER", "MSG_DIRECT_DELIVER") \
+                if t in ("USER_DELIVER", "SERVER_DELIVER") \
                 and "ciphertext" in payload and "iv" not in payload and "tag" not in payload:
 
                     ct_b64       = payload.get("ciphertext")
@@ -439,7 +449,7 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
             if line.strip() == "/quit":
                 break
             elif line.strip() == "/list":
-                await commands.do_list()
+                await commands.do_list(user_list)
             elif line.startswith("/tell "):
                 try:
                     _, uid, text = line.split(" ", 2)
