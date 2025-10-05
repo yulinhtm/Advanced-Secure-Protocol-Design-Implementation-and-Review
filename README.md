@@ -1,6 +1,8 @@
 # Advanced-Secure-Protocol-Design-Implementation-and-Review
 
-Grope member:
+Group name: Project Groups 20  
+
+Group member:
 
 Jiahui Wang a1822691
 
@@ -26,6 +28,7 @@ SOCP v1.3.pdf       -- about everything in socp protocol
 image.webp          -- show libaray that can be used to appy websock for different language(i choose websockts(python))  
 
 Other file can be ignored  
+
 
 
 
