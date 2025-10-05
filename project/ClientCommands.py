@@ -71,11 +71,11 @@ class ClientCommands:
         print("[CLIENT] /list 已发送")
 
     # ---------------- /tell (end-to-end) ----------------
-    async def do_tell(self, recipient_id: str, plaintext: str, recipient_pub=None):
-        if recipient_pub is None:
-            recipient_pub = await self.get_recipient_pubkey(recipient_id)
-        if recipient_pub is None:
+    async def do_tell(self, recipient_id: str, plaintext: str, recipient_pub_str=None):
+
+        if recipient_pub_str is None:
             raise ValueError("recipient public key unavailable")
+        recipient_pub = cu.deserialize_publickey(recipient_pub_str)
 
         # 加密正文
         ciphertext = cu.rsa_oaep_encrypt(recipient_pub, plaintext.encode("utf-8"))
@@ -113,14 +113,16 @@ class ClientCommands:
 
 
     # ---------------- /file (DM + RSA) ----------------
-    async def do_file(self, recipient_id: str, filepath: str, recipient_pub=None):
+    async def do_file(self, recipient_id: str, filepath: str, recipient_pub_str=None):
 
+        if recipient_pub_str is None:
+            raise ValueError("recipient public key unavailable")
+        recipient_pub = cu.deserialize_publickey(recipient_pub_str)
+        
         if not os.path.exists(filepath):
             raise FileNotFoundError(filepath)
 
         # 拿接收方公钥
-        if recipient_pub is None:
-            recipient_pub = await self.get_recipient_pubkey(recipient_id)
         if recipient_pub is None:
             raise ValueError("recipient public key unavailable")
 

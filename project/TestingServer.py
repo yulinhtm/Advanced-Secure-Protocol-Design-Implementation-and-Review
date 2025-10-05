@@ -25,6 +25,7 @@ servers = {}          # server_id -> ws
 server_addrs: Dict[str, Dict[str, str]] = {}
 server_pubkeys: Dict[str, str] = {}
 server_addrs = {}     # server_id -> (host, port)
+server_users = {}
 local_users = {}      # user_id  -> ws
 user_locations = {}   # user_id  -> "local" | server_id
 
@@ -339,6 +340,79 @@ def create_error(to_user: str, code: str, detail: str):
     env["sig"] = cu.sign_payload(private_key, cu.canonical_json(payload).encode("utf-8"))
     return env
 
+
+# ===================== 广播：某用户上线 =====================
+async def broadcast_user_online(meta: str, user_id: str, pubkey):
+    payload = {
+        "meta": meta,
+        "user_id": user_id,
+        "pubkey": pubkey,
+        "when": cu.int_ts_ms(),
+    }
+    env = {
+        "type": "USER_ONLINE",
+        "from": SERVER_ID,
+        "to": "*",
+        "ts": cu.int_ts_ms(),
+        "payload": payload,
+    }
+    env["sig"] = cu.sign_payload(private_key, cu.canonical_json(payload).encode("utf-8"))
+    for uid, cli_ws in list(local_users.items()):
+        try:
+            if uid != user_id:
+                await ws_send(cli_ws, json.dumps(env))
+        except Exception:
+            pass
+
+    print("Have already broadcast user online")
+
+# ===================== 广播：某用户下线（只广播用户名）=====================
+async def broadcast_user_offline_username(user_id: str):
+    payload = {
+        "user_id": user_id,
+        "when": cu.int_ts_ms(),
+    }
+    env = {
+        "type": "USER_OFFLINE",
+        "from": SERVER_ID,
+        "to": "*",
+        "ts": cu.int_ts_ms(),
+        "payload": payload,
+    }
+    env["sig"] = cu.sign_payload(private_key, cu.canonical_json(payload).encode("utf-8"))
+    for uid, cli_ws in list(local_users.items()):
+        try:
+            if uid != user_id:
+                await ws_send(cli_ws, json.dumps(env))
+        except Exception:
+            pass
+
+
+
+async def sending_existing_user(ws):
+    all_users = {}
+
+    # Collect from server_users
+    for user_id, info in server_users.items():
+        all_users[user_id] = {
+            "pubkey": info["pubkey"],
+            "meta": info["meta"]
+        }
+
+    # Collect from local_users (meta and pubkey from DB)
+    for user_id in local_users:
+        display_name = get_display_name(user_id)      # your DB function
+        meta = {"display_name": display_name}
+        pubkey = get_user_pubkey(user_id)  # your DB function
+        all_users[user_id] = {
+            "pubkey": pubkey,
+            "meta": meta
+        }
+
+    ack_msg = cu.create_ack_list_message(private_key, "USE_HELLO",all_users,  SERVER_ID)
+    await ws.send(json.dumps(ack_msg))
+    print("Have already sent existing user")
+
 # ===================== 连接处理 =====================
 async def handle_connection(ws):
     try:
@@ -396,7 +470,8 @@ async def handle_connection(ws):
                 user_locations[user_id] = "local"
 
                 # ACK
-                await ws.send(json.dumps(create_ack(user_id, "USER_REGISTER")))
+                await sending_existing_user(ws)
+                await broadcast_user_online(meta, user_id, pubkey)
                 print(f"[REGISTER] user {user_id} ({display_name}) registered")
 
             elif mtype == "SERVER_ANNOUNCE":
@@ -484,8 +559,14 @@ async def handle_connection(ws):
                 user_locations[user_id] = "local"
 
                 # ACK
-                await ws.send(json.dumps(create_ack(user_id, "USER_HELLO")))
+                await sending_existing_user(ws)
+                display_name = get_display_name(user_id)      # your DB function
+                meta = {"display_name": display_name}
+                pubkey_str = get_user_pubkey(user_id)
+                await broadcast_user_online(meta, user_id, pubkey_str)
                 print(f"[LOGIN] user {user_id} logged in")
+
+                
 
             # ---------------- 命令分发 ----------------
             elif mtype == "LIST_REQUEST":

@@ -91,11 +91,11 @@ def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
     return base64.urlsafe_b64encode(pub_der).decode("utf-8").rstrip("=")
 
 
-def deserialize_publickey(pubkey_b64: str) -> rsa.RSAPublicKey:
+def deserialize_publickey(pubkey_b64: str):
+    # 自动补齐 Base64 填充符 '='，防止 padding 错误
     pad = '=' * (-len(pubkey_b64) % 4)
     der = base64.urlsafe_b64decode(pubkey_b64 + pad)
     return serialization.load_der_public_key(der)
-
 
 # ========== JSON 规范化 ==========
 
@@ -184,6 +184,27 @@ def decrypt_payload_fields(enc_payload: Dict[str, Any], server_privkey: rsa.RSAP
         out[k] = v
     return out
 
+
+
+def create_ack_list_message(private_key: rsa.RSAPrivateKey, msg_ref: str,content, server_id: str, to_user: str| None = None) -> dict:
+    
+    # Canonicalize payload
+    canonical_bytes = json.dumps(content, sort_keys=True, separators=(',', ':')).encode("utf-8")
+    
+    # Sign the payload
+    signature_b64url = sign_payload(private_key, canonical_bytes)
+    
+    # Construct message
+    message = {
+        "type": "ACK",
+        "from": server_id,
+        "to": to_user,
+        "payload": content,
+        "sig": signature_b64url
+    }
+    
+    return message
+
 # ====================== 验证密码是否强壮 ======================
 
 def is_strong_password(password: str) -> bool:
@@ -245,6 +266,15 @@ def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
     return b64url_encode(pub_der)
+
+def deserialize_privatekey(privkey_str: str, password: str):
+    priv_bytes = base64.urlsafe_b64decode(privkey_str)
+    private_key = serialization.load_der_private_key(
+        priv_bytes,
+        password=password.encode("utf-8")
+    )
+    return private_key
+
 
 
 # === salt + 私钥加密（客户端 register 用） ===

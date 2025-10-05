@@ -13,7 +13,8 @@ from ClientCommands import ClientCommands
 
 SERVER_URL = "ws://localhost:8765"
 MAX_RSA_PLAINTEXT = 446  # RSA-4096 + OAEP(SHA-256) 的明文上限
-
+user_list = {}
+SERVER_ID = cu.generate_user_id("server-1")
 # ===== 工具：加载服务器公钥（用于注册/登录加密；没有也能跑） =====
 def load_server_pubkey():
     try:
@@ -74,6 +75,7 @@ def maybe_encrypt_payload(fields: dict, server_pubkey) -> dict:
 
 # ====== 注册 ======
 async def register(ws, username, password, server_pubkey):
+    global SERVER_ID, user_list 
     user_id = cu.generate_user_id(username)
     priv, pub = cu.generate_rsa_keypair()
     pubkey_str = cu.serialize_publickey(pub)
@@ -93,37 +95,47 @@ async def register(ws, username, password, server_pubkey):
     await ws.send(json.dumps({
         "type": "USER_REGISTER",
         "from": user_id,
-        "to": "*",
+        "to": SERVER_ID,
         "ts": cu.int_ts_ms(),
         "payload": enc
     }))
 
+    raw = await asyncio.wait_for(ws.recv(), timeout=10)
     try:
-        raw = await asyncio.wait_for(ws.recv(), timeout=10)
-        resp = json.loads(raw)
-        print("[SERVER]", resp)
-        if resp.get("type") == "ACK":
-            save_keypair_for_user(username, priv, pub, password)
-            return True, priv
+        response = json.loads(raw)     # convert to dict
+    except json.JSONDecodeError:
+        print("Invalid JSON received:", raw)
         return False, None
-    except asyncio.TimeoutError:
-        print("[WARN] No response for registration.")
+    payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
+    if cu.verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
+        print("Signature is valid\n")
+        if response.get("type") == "ACK":
+            print("Server responded with ACK")
+            SERVER_ID = response.get("from")
+            user_list = response.get("payload")
+            safe_filename = hashlib.sha256(username.encode()).hexdigest()
+            cu.save_rsa_keys_to_files(priv, pub, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
+        else:
+            print("Server response:", payload_extracted)  
+            return False, None  
+    else:
+        print("Signature is INVALID")
         return False, None
 
+    return True, priv
 
 
 
 # ====== 登录 ======
 async def login(ws, username: str, password: str, server_pubkey):
+    global SERVER_ID, user_list 
     user_id = cu.generate_user_id(username) 
     # 尝试加载已有密钥；没有就新生成
     priv, pub = try_load_keypair(username, password)
+    newClient = False
     if not priv or not pub:
-        try:
-            priv, pub = cu.generate_rsa_keypair()
-        except AttributeError:
-            priv = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-            pub = priv.public_key()
+        priv, pub = cu.generate_rsa_keypair()
+        newClient = True
 
     pubkey_str = cu.serialize_publickey(pub)
     payload_fields = {"client": "cli-v1", "pubkey": pubkey_str, "plain_password": password}
@@ -132,26 +144,40 @@ async def login(ws, username: str, password: str, server_pubkey):
     login_msg = {
         "type": "USER_HELLO",
         "from": user_id,
-        "to": "*",
+        "to": SERVER_ID,
         "ts": cu.int_ts_ms(),
         "payload": enc_payload
     }
     await ws.send(json.dumps(login_msg))
 
     # 等一次首包（ACK/ERROR）打印后 → 若 ACK，进入命令循环；若 ERROR，返回菜单
+    raw = await asyncio.wait_for(ws.recv(), timeout=10)
     try:
-        raw = await asyncio.wait_for(ws.recv(), timeout=10)
-        resp = json.loads(raw)
-        print("[SERVER]", resp)
-        if resp.get("type") != "ACK":
+        response = json.loads(raw)     # convert to dict
+    except json.JSONDecodeError:
+        print("Invalid JSON received:", raw)
+        return False, None
+    payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
+    if cu.verify_json_signature(server_pubkey, payload_extracted, sig_extracted):
+        print("Signature is valid\n")
+        if response.get("type") == "ACK":
+            print("Server responded with ACK")
+            SERVER_ID = response.get("from")
+            user_list = response.get("payload")
+            if newClient:
+                safe_filename = hashlib.sha256(username.encode()).hexdigest()
+                cu.save_rsa_keys_to_files(priv, pub, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
+        else:
+            print("Server response:", payload_extracted)  
             return False, None
-    except asyncio.TimeoutError:
-        print("[WARN] No response for login.")
+    else:
+        print("Signature is INVALID")
+        return False, None
 
     return True, priv
 
 # ====== 交互循环 ======
-async def run_shell(ws, username: str, private_key):
+async def run_shell(ws, username: str, private_key, server_pubkey):
     user_id = cu.generate_user_id(username)
     try:
         commands = ClientCommands(ws, user_id, private_key, db_path="user.db")
@@ -182,6 +208,61 @@ async def run_shell(ws, username: str, private_key):
                             print(" -", u)
                     else:
                         print("[/list] 当前没有可见的在线用户。")
+                    continue
+
+
+                # —— 上线广播：兼容 USER_ONLINE / USER_ADVERTISE —— 
+                if t in ("USER_ONLINE", "USER_ADVERTISE"):
+                    p = payload or {}
+
+                    # 1) 先验证签名：以服务器公钥为准（Introducer/其他服务器的广播同理）
+                    try:
+                        # 你已有 server_pubkey（load_server_pubkey()）
+                        ok = cu.verify_json_signature(server_pubkey, p, msg.get("sig", ""))
+                        if not ok:
+                            print("[notice] USER_ONLINE 验签失败，已丢弃。")
+                            continue
+                    except Exception as e:
+                        print("[notice] USER_ONLINE 验签异常：", e)
+                        continue
+
+                    # 2) 解析字段
+                    meta = p.get("meta") or {}
+                    name = meta.get("display_name") or meta.get("username") or p.get("display_name") or p.get("username")
+                    uid  = p.get("user_id")
+                    pk64 = p.get("pubkey")  # base64url(DER) 字符串
+
+                    # 3) 更新本地目录缓存（全局 user_list： user_id -> {pubkey:str, meta:dict}）
+                    if uid and pk64:
+                        user_list[uid] = {
+                            "pubkey": pk64,   # 注意：这里先存字符串；真正使用时再 cu.deserialize_publickey()
+                            "meta":   meta 
+                        }
+
+                    # 4) 友好提示
+                    if name or uid:
+                        if name and uid:
+                            print(f"[notice] 用户上线：{name}（{uid}）")
+                        elif name:
+                            print(f"[notice] 用户上线：{name}")
+                        else:
+                            print(f"[notice] 用户上线：{uid}")
+                    else:
+                        print(f"[notice] 有用户上线（payload 缺少可显示字段）：{p}")
+                    continue
+
+                # —— 下线广播：兼容 USER_OFFLINE / USER_REMOVE（只需要用户名，没就回退到 user_id） ——
+                if t in ("USER_OFFLINE", "USER_REMOVE"):
+                    p = payload or {}
+                    meta = p.get("meta") or {}
+                    name = p.get("username") or meta.get("username") or p.get("display_name")
+                    uid  = p.get("user_id")
+                    if name:
+                        print(f"[notice] 用户下线：{name}")
+                    elif uid:
+                        print(f"[notice] 用户下线：{uid}")
+                    else:
+                        print(f"[notice] 有用户下线（payload 缺少可显示字段）：{p}")
                     continue
 
 
@@ -278,7 +359,9 @@ async def run_shell(ws, username: str, private_key):
                             print("[FILE] manifest 签名无效，丢弃。");  continue
 
                         out_name = f"{p['file_id']}_{p['name']}"
+                        out_dir  = "Downloads"
                         out_path = os.path.join("Downloads", out_name)
+                        os.makedirs(out_dir, exist_ok=True)
                         fh = open(out_path, "wb")
 
                         incoming_files[p["file_id"]] = {
@@ -342,7 +425,7 @@ async def run_shell(ws, username: str, private_key):
                     print(f"[SERVER] {t}: {payload}")
                     continue
 
-                # 4) 兜底
+                # 兜底
                 print("[SERVER]", msg)
 
         except websockets.ConnectionClosed:
@@ -360,13 +443,14 @@ async def run_shell(ws, username: str, private_key):
             elif line.startswith("/tell "):
                 try:
                     _, uid, text = line.split(" ", 2)
-                    await commands.do_tell(uid, text)
+                    print(user_list)
+                    await commands.do_tell(uid, text, user_list[uid]["pubkey"])
                 except ValueError:
                     print("用法: /tell <user_id> <message>")
             elif line.startswith("/file "):
                 try:
                     _, uid, path = line.split(" ", 2)
-                    await commands.do_file(uid, path)
+                    await commands.do_file(uid, path, user_list[uid]["pubkey"])
                 except ValueError:
                     print("用法: /file <user_id> <path>")
             elif line.startswith("/all "):
@@ -394,7 +478,7 @@ async def main():
                 if not ok:
                     continue
                 print("[INFO] Registration success. You are already online; entering shell…")
-                await run_shell(ws, username, private_key=priv)
+                await run_shell(ws, username, priv, server_pubkey)
             continue
 
         elif choice == "2":
@@ -403,7 +487,7 @@ async def main():
             async with websockets.connect(SERVER_URL) as ws:
                 ok, priv = await login(ws, username, password, server_pubkey)
                 if ok:
-                    await run_shell(ws, username, private_key=priv)
+                    await run_shell(ws, username, priv, server_pubkey)
             continue
 
         else:
