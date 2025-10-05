@@ -308,19 +308,15 @@ async def handle_connection(ws):
         async for message in ws:
             try:
                 msg = json.loads(message)
-                hb.mark_peer_seen(msg.get("from"))
             except json.JSONDecodeError:
                 error_message = create_error_message(private_key, "INVALID_JSON", "JSON decoding failed", SERVER_ID)
                 await ws.send(json.dumps(error_message))
                 continue
 
-
-            # --- NEW: 标记对方存活 ---
+            # 这样就能保证只要有通信，连接就会被视为“活着”。
             from_id = msg.get("from")
             if from_id:
                 hb.mark_peer_seen(from_id)
-
-
 
 
 
@@ -483,62 +479,68 @@ async def handle_connection(ws):
 async def forward_to_user(user_id, message):
     location = user_locations.get(user_id)
     if not location:
-        print(f"User {user_id} not found in user_locations")
+        print(f"[FORWARD] User {user_id} not found in user_locations")
         return False
 
     try:
         if location == "local":
             ws = local_users.get(user_id)
-            if ws:
+            if ws and getattr(ws, "open", True):
                 await ws.send(json.dumps(message))
                 return True
-        else:
-            # 发给其他服务器
-            ws = servers.get(location)
-            if ws:
-                await ws.send(json.dumps(message))
-                return True
+            else:
+                print(f"[PRESENCE] Local user {user_id} stale, correcting to offline")
+                local_users.pop(user_id, None)
+                user_locations.pop(user_id, None)
+                return False
 
-        # 如果 ws 不存在或关闭 → 触发 lazy correction
-        print(f"[PRESENCE] {user_id} stale, correcting to offline")
-        user_locations.pop(user_id, None)
-        return False
+        else:
+            # location 这里是 server_id
+            if location in servers:
+                ws = servers[location]
+                if ws and getattr(ws, "open", True):
+                    await ws.send(json.dumps(message))
+                    return True
+
+            print(f"[PRESENCE] Remote user {user_id} via {location} stale, correcting to offline")
+            user_locations.pop(user_id, None)
+            return False
 
     except Exception as e:
         print(f"[FORWARD ERROR] failed to deliver to {user_id}: {e}")
-        # --- NEW: lazy correction 只在真正失败时更新 ---
+        # --- lazy correction ---
+        if location == "local":
+            local_users.pop(user_id, None)
         user_locations.pop(user_id, None)
         return False
 
 
-
-
-
 hb.servers = servers
-hb.SERVER_ID = SERVER_ID
 hb.last_seen_times = last_seen_times
 hb.server_addrs = server_addrs
+hb.SERVER_ID = SERVER_ID
 
 
 
 
 # ===================== 启动 =====================
 async def main():
+    # Heartbeat and Monitoring
     print("Starting background tasks for heartbeat and monitoring...")
+
+    # 启动心跳与监控
     asyncio.create_task(hb.send_heartbeats_periodically())
     asyncio.create_task(hb.monitor_connections_periodically())
 
+
+    # 启动主动连接到其它服务器
+    for sid, addr in server_addrs.items():
+        asyncio.create_task(hb.reconnect_to_server(sid, addr))
+
     # 启动监听
-    server_task = websockets.serve(handle_connection, "0.0.0.0", int(SERVER_PORT))
-    asyncio.create_task(server_task)
-
-    # 等待一会儿，再 bootstrap
-    await asyncio.sleep(2)
-    success = await bootstrap_from_yaml()
-    print("Bootstrap success:", success)
-
-    # 永远运行
-    await asyncio.Future()
+    async with websockets.serve(handle_connection, "localhost", 8765):
+        print("Server running on ws://localhost:8765")
+        await asyncio.Future()  # run forever
 
     #  --- END: Heartbeat and Monitoring Functions in Heartbeats_Timeouts.py---
 

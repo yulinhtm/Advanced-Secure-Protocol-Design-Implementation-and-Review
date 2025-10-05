@@ -44,8 +44,6 @@ async def send_heartbeats_periodically():
                     # default placeholder sig (so sig key always present)
                     "sig": "..."
                 }
-
-                # 看看是否可行，不可行直接删除关于sig的功能
                 # if real signing is available, produce a signature and replace placeholder
                 if sign_payload and private_key:
                     try:
