@@ -18,8 +18,7 @@ servers: Dict[str, websockets.WebSocketClientProtocol] = {}
 server_addrs: Dict[str, Tuple[str, int]] = {}   # server_id -> (host, port)
 last_seen_times: Dict[str, int] = {}            # server_id -> timestamp ms
 SERVER_ID: str = ""
-private_key = None           # optional, may be set by main if you want real signatures
-sign_payload = None          # optional function: sign_payload(privkey, bytes) -> str
+
 
 HEARTBEAT_INTERVAL = 15      # seconds
 MONITOR_INTERVAL = 10        # seconds
@@ -42,16 +41,9 @@ async def send_heartbeats_periodically():
                     "ts": int(time.time() * 1000),
                     "payload": {},
                     # default placeholder sig (so sig key always present)
-                    "sig": "..."
+                    "sig": ""
                 }
-                # if real signing is available, produce a signature and replace placeholder
-                if sign_payload and private_key:
-                    try:
-                        # canonicalize payload bytes and sign; sign_payload(privkey, bytes) expected
-                        payload_bytes = json.dumps(heartbeat_msg["payload"], sort_keys=True, separators=(',', ':')).encode("utf-8")
-                        heartbeat_msg["sig"] = sign_payload(private_key, payload_bytes)
-                    except Exception as e:
-                        print(f"[HB SIGN ERROR] failed to sign heartbeat for {server_id}: {e}")
+                
 
                 # debug print of message
                 print(f"[HB -> {server_id}] {json.dumps(heartbeat_msg)}")

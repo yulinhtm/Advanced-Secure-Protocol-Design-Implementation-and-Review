@@ -5,79 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login / Register</title>
     <link rel="stylesheet" href="styles.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
     <style>
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.6);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .modal-content {
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            width: 90%;
-            max-width: 400px;
-            text-align: center;
-        }
-
-        .modal-content h3 {
-            margin-top: 0;
-            margin-bottom: 15px;
-            color: #333;
-        }
-
-        .modal-user-id {
-            background-color: #f0f0f0;
-            padding: 10px;
-            border-radius: 4px;
-            font-family: 'Courier New', Courier, monospace;
-            font-weight: bold;
-            color: #d63384;
-            margin-bottom: 20px;
-            word-wrap: break-word;
-        }
-        
-        .modal-actions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .btn {
-             padding: 10px 15px;
-             border: none;
-             border-radius: 5px;
-             cursor: pointer;
-             font-size: 16px;
-             font-family: 'Inter', sans-serif;
-        }
-        .btn-primary {
-            background-color: #007bff;
-            color: white;
-        }
-        .btn-secondary {
-            background-color: #6c757d;
-            color: white;
-        }
-        .full-width {
-            width: 100%;
-        }
-
-        .hidden {
-            display: none;
-        }
+        .btn { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
@@ -85,15 +15,15 @@
 <div class="auth-container">
     <div class="auth-card">
         <div class="auth-tabs">
-            <button type="submit" id="tab-login" class="auth-tab active">Login</button>
-            <button type="submit" id="tab-register" class="auth-tab">Register</button>
+            <button id="tab-login" class="auth-tab active">Login</button>
+            <button id="tab-register" class="auth-tab">Register</button>
         </div>
 
         <form id="login-form">
             <h2>Welcome Back!</h2>
             <div class="form-group">
-                <label for="login-userid">User name</label>
-                <input type="text" id="login-userid" class="input" placeholder="Enter your User Name from registration" required>
+                <label for="login-username">Username</label>
+                <input type="text" id="login-username" class="input" placeholder="Enter your Username" required>
             </div>
             <div class="form-group">
                 <label for="login-password">Password</label>
@@ -104,14 +34,6 @@
 
         <form id="register-form" class="hidden">
             <h2>Create Account</h2>
-            <div class="form-group avatar-uploader">
-                <label for="avatar-upload">
-                    <img src="https://api.dicebear.com/7.x/initials/svg?seed=?" alt="Avatar Preview" class="avatar-preview" id="avatar-preview">
-                    <span>Upload Avatar</span>
-                </label>
-                <input type="file" id="avatar-upload" accept="image/*" hidden>
-            </div>
-
             <div class="form-group">
                 <label for="register-username">Username</label>
                 <input type="text" id="register-username" class="input" required>
@@ -126,109 +48,114 @@
             </div>
             <button type="submit" class="btn btn-primary full-width">Create Account</button>
         </form>
+        <p id="msg" style="text-align: center; margin-top: 15px; min-height: 20px;"></p>
     </div>
 </div>
-
-<div id="user-id-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-        <h3>Registration Successful!</h3>
-        <p>Please copy and save your new User ID. You will need it to log in.</p>
-        <div id="modal-user-id" class="modal-user-id"></div>
-        <div class="modal-actions">
-            <button type="submit" id="copy-id-btn" class="btn btn-primary full-width">Copy ID</button>
-            <button type="submit" id="close-modal-btn" class="btn btn-secondary full-width">Close</button>
-        </div>
-    </div>
-</div>
-
 
 <script>
+    // --- DOM Elements ---
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
-    const avatarUpload = document.getElementById('avatar-upload');
-    const avatarPreview = document.getElementById('avatar-preview');
-    const userIdModal = document.getElementById('user-id-modal');
-    const modalUserId = document.getElementById('modal-user-id');
-    const copyIdBtn = document.getElementById('copy-id-btn');
-    const closeModalBtn = document.getElementById('close-modal-btn');
+    const msgEl = document.getElementById('msg');
 
+    // MODIFIED: Removed all modal-related DOM element selections
+
+    // --- Tab Switching ---
     tabLogin.addEventListener('click', () => {
         loginForm.classList.remove('hidden');
         registerForm.classList.add('hidden');
         tabLogin.classList.add('active');
         tabRegister.classList.remove('active');
+        if (msgEl) msgEl.textContent = '';
     });
-
     tabRegister.addEventListener('click', () => {
         registerForm.classList.remove('hidden');
         loginForm.classList.add('hidden');
         tabRegister.classList.add('active');
         tabLogin.classList.remove('active');
-    });
-    
-    avatarUpload.addEventListener('change', (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                avatarPreview.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
+        if (msgEl) msgEl.textContent = '';
     });
 
-    loginForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        
-        const userId = document.getElementById('login-userid').value;
-        console.log(`Simulating login for User ID: ${userId}`);
-        
-        setTimeout(() => {
-            window.location.href = 'index.html';
-        }, 1000); 
-    });
-    
-    registerForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        
+    // MODIFIED: Removed modal button event listeners
+
+    // --- Helper Functions ---
+    function showMsg(text, isError = false) {
+        if (!msgEl) return;
+        msgEl.textContent = text;
+        msgEl.style.color = isError ? '#c00' : '#0a0';
+    }
+
+    // This function must be the same as the one on your Python server (in crypto_utils)
+    async function generateUserId(username) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(username);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // This format should match your server's cu.generate_user_id function
+        return `user-${hashHex.substring(0, 16)}`;
+    }
+
+    // --- WebSocket Communication ---
+    function connectAndSend(message, successCallback) {
+        showMsg("Connecting to server...");
+        const ws = new WebSocket("ws://localhost:8765");
+        ws.onopen = () => { ws.send(JSON.stringify(message)); showMsg("Waiting for reply..."); };
+        ws.onmessage = (event) => {
+            const response = JSON.parse(event.data);
+            if (response.type === "ACK") { successCallback(response); }
+            else if (response.type === "ERROR") {
+                const errorDetails = response.payload ? response.payload.detail : "Unknown server error";
+                showMsg(`Error: ${errorDetails}`, true);
+            } else { showMsg(`Received unexpected message type: ${response.type}`, true); }
+            ws.close();
+        };
+        ws.onerror = () => { showMsg("Connection to server failed. Is the server running?", true); };
+    }
+
+    // --- MODIFIED: Registration Form ---
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const displayName = document.getElementById('register-username').value.trim();
         const password = document.getElementById('register-password').value;
-        const confirmPassword = document.getElementById('register-confirm-password').value;
-
-        if (password !== confirmPassword) {
-            alert("Passwords do not match!");
+        if (password !== document.getElementById('register-confirm-password').value) {
+            showMsg("Passwords do not match!", true);
             return;
         }
 
-        console.log('Simulating successful registration...');
+        const userId = await generateUserId(displayName);
+        const payload = { "display_name": displayName, "pubkey": "placeholder", "privkey_store": "placeholder", "plain_password": password, "salt": "placeholder" };
+        const registerMessage = { "type": "USER_REGISTER", "from": userId, "to": "server-1", "ts": Date.now(), "payload": payload, "sig": "" };
 
-        const newUserId = crypto.randomUUID();
-        
-        modalUserId.textContent = newUserId;
-        
-        copyIdBtn.textContent = 'Copy ID';
-        copyIdBtn.disabled = false;
-
-        userIdModal.classList.remove('hidden');
-    });
-    
-    copyIdBtn.addEventListener('click', () => {
-        const userIdToCopy = modalUserId.textContent;
-        navigator.clipboard.writeText(userIdToCopy).then(() => {
-            copyIdBtn.textContent = 'Copied!';
-            copyIdBtn.disabled = true;
-        }).catch(err => {
-            console.error('Failed to copy text: ', err);
-            alert('Failed to copy ID. Please copy it manually.');
+        connectAndSend(registerMessage, (response) => {
+            // MODIFIED: Show simple success message and redirect directly to chat
+            showMsg("Create Successful", false);
+            localStorage.setItem('user_id', userId);
+            localStorage.setItem('display_name', displayName);
+            setTimeout(() => { window.location.href = 'index.html'; }, 1500);
         });
     });
 
-    closeModalBtn.addEventListener('click', () => {
-        userIdModal.classList.add('hidden');
-        tabLogin.click();
-    });
+    // --- MODIFIED: Login Form ---
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const displayName = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+        
+        const userId = await generateUserId(displayName);
+        const payload = { "pubkey": "placeholder", "plain_password": password };
+        const loginMessage = { "type": "USER_HELLO", "from": userId, "to": "server-1", "ts": Date.now(), "payload": payload, "sig": "" };
 
+        connectAndSend(loginMessage, (response) => {
+            // MODIFIED: Show new success message
+            showMsg("Welcome to Join Us", false);
+            localStorage.setItem('user_id', userId);
+            localStorage.setItem('display_name', displayName);
+            setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+        });
+    });
 </script>
 
 </body>

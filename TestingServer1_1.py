@@ -15,14 +15,14 @@ import crypto_utils as cu
 
 # ===================== 配置 =====================
 HOST = "localhost"
-PORT = 8765
+PORT = 8766
 SERVER_NAME = "server-1"
 
 # ===================== 全局状态 =====================
 servers = {}           # server_id -> WebSocket 连接
 server_addrs = {}      # server_id -> (host, port) 地址信息
 local_users = {}       # user_id -> WebSocket 连接
-user_locations = {}    # user_id -> "local" 或 server_id (可能陈旧)
+user_locations = {}    # user_id -> "local" 或 server_id
 
 # 辅助函数：查看当前连接的服务器
 def get_connected_servers():
@@ -32,40 +32,6 @@ def get_connected_servers():
 def get_known_servers():
     """返回所有已知的服务器地址"""
     return dict(server_addrs)
-
-# ===================== Presence 管理 =====================
-def mark_user_location_stale(server_id: str):
-    """
-    当与某个服务器的连接丢失时，标记该服务器上所有用户的位置为陈旧。
-    懒惰修正：不立即删除，等待消息投递失败或收到新gossip时再处理。
-    """
-    stale_users = [uid for uid, loc in user_locations.items() if loc == server_id]
-    if stale_users:
-        print(f"[PRESENCE] Marking {len(stale_users)} users as potentially stale (from server {server_id})")
-        # 保留位置信息但标记为"可能不准确"
-        # 在实际投递失败时会清理
-    return stale_users
-
-def correct_user_presence_on_gossip(user_id: str, new_location: str):
-    """
-    收到新的gossip消息时，更新用户位置信息。
-    这是懒惰修正的一部分。
-    """
-    old_location = user_locations.get(user_id)
-    if old_location != new_location:
-        print(f"[PRESENCE] Correcting {user_id} location: {old_location} -> {new_location}")
-        if new_location == "offline":
-            user_locations.pop(user_id, None)
-        else:
-            user_locations[user_id] = new_location
-        return True
-    return False
-
-def remove_stale_user(user_id: str):
-    """投递失败时移除陈旧的用户记录"""
-    old_loc = user_locations.pop(user_id, None)
-    if old_loc:
-        print(f"[PRESENCE] Removed stale user {user_id} (was at {old_loc})")
 
 # ===================== 数据库 (不变) =====================
 DB = "user.db"
@@ -134,7 +100,6 @@ hb.SERVER_ID = SERVER_ID
 hb.last_seen_times = {}
 hb.private_key = private_key
 hb.sign_payload = cu.sign_payload
-hb.on_server_disconnected = mark_user_location_stale  # 注入回调函数
 
 # ===================== 服务器间连接初始化 =====================
 async def connect_to_peer_servers():
@@ -157,7 +122,11 @@ async def connect_to_peer_servers():
             server_id, host, port = parts
             peer_servers.append((server_id, host, int(port)))
     
- 
+    # 方式2: 或者直接硬编码（开发测试用）
+    # peer_servers = [
+    #     ("server-2", "localhost", 8766),
+    #     ("server-3", "localhost", 8767),
+    # ]
     
     if not peer_servers:
         print("[INIT] No valid peer servers to connect")
@@ -171,50 +140,6 @@ async def connect_to_peer_servers():
             print(f"[INIT] Connected to peer server {server_id} at {host}:{port}")
         except Exception as e:
             print(f"[INIT] Failed to connect to {server_id}: {e} (will retry automatically)")
-
-# ===================== 消息投递（带懒惰修正） =====================
-async def deliver_message_to_user(recipient_id: str, message: dict):
-    """
-    尝试向用户投递消息，如果失败则进行懒惰修正。
-    返回: (success: bool, error_msg: str or None)
-    """
-    # 1. 先检查本地用户
-    if recipient_id in local_users:
-        recipient_ws = local_users[recipient_id]
-        try:
-            await recipient_ws.send(json.dumps(message))
-            print(f"[DELIVER] Message delivered to local user {recipient_id}")
-            return True, None
-        except Exception as e:
-            # 本地投递失败 - 移除陈旧连接
-            print(f"[DELIVER] Failed to deliver to local user {recipient_id}: {e}")
-            local_users.pop(recipient_id, None)
-            user_locations.pop(recipient_id, None)
-            return False, "Local delivery failed, user disconnected"
-    
-    # 2. 检查远程位置（可能陈旧）
-    remote_server = user_locations.get(recipient_id)
-    if remote_server and remote_server != "local":
-        # 检查到远程服务器的连接是否存在
-        remote_ws = servers.get(remote_server)
-        if remote_ws:
-            try:
-                await remote_ws.send(json.dumps(message))
-                print(f"[DELIVER] Message forwarded to {recipient_id} via server {remote_server}")
-                return True, None
-            except Exception as e:
-                # 远程投递失败 - 懒惰修正：移除陈旧记录
-                print(f"[DELIVER] Failed to forward to {recipient_id} via {remote_server}: {e}")
-                remove_stale_user(recipient_id)
-                return False, f"Remote server {remote_server} unreachable"
-        else:
-            # 远程服务器连接不存在 - 懒惰修正
-            print(f"[DELIVER] Remote server {remote_server} for {recipient_id} not connected")
-            remove_stale_user(recipient_id)
-            return False, f"Remote server {remote_server} not connected"
-    
-    # 3. 用户不在线
-    return False, f"User {recipient_id} not found"
 
 # ===================== 连接处理 =====================
 async def handle_connection(ws):
@@ -236,30 +161,8 @@ async def handle_connection(ws):
                 # 心跳消息已经在上面更新了时间戳，这里可以记录日志
                 print(f"[HB] Received heartbeat from {user_id}")
                 continue  # 心跳不做其他处理
-            
-            # --- Gossip消息处理（懒惰修正presence） ---
-            elif mtype == "USER_JOINED":
-                # 收到其他服务器的用户加入通知
-                payload = msg.get("payload", {})
-                joined_user = payload.get("user_id")
-                from_server = msg.get("from")
-                if joined_user and from_server:
-                    correct_user_presence_on_gossip(joined_user, from_server)
-                # 转发给本地用户
-                await broadcast(msg)
-                continue
-            
-            elif mtype == "USER_LEFT":
-                # 收到其他服务器的用户离开通知
-                payload = msg.get("payload", {})
-                left_user = payload.get("user_id")
-                if left_user:
-                    correct_user_presence_on_gossip(left_user, "offline")
-                # 转发给本地用户
-                await broadcast(msg)
-                continue
 
-            elif mtype == "USER_REGISTER":
+            if mtype == "USER_REGISTER":
                 # (注册逻辑不变)
                 payload = msg.get("payload", {}); display_name = payload.get("display_name")
                 if user_exists(user_id, display_name):
@@ -272,7 +175,7 @@ async def handle_connection(ws):
                 print(f"[REGISTER] user {user_id} ({display_name}) registered")
 
             elif mtype == "USER_HELLO":
-                # (登录和广播逻辑)
+                # (登录和广播逻辑不变)
                 payload = msg.get("payload", {})
                 plain_password = payload.get("plain_password")
                 if plain_password != "reconnect_placeholder" and not check_user_password(user_id, plain_password):
@@ -286,12 +189,6 @@ async def handle_connection(ws):
                     print(f"[LOGIN] user {user_id} ({display_name}) logged in")
                     join_notification = {"type": "USER_JOINED", "from": SERVER_ID, "payload": {"user_id": user_id, "display_name": display_name}}
                     await broadcast(join_notification, exclude_ws={ws})
-                    # 向其他服务器gossip用户加入
-                    for server_id, server_ws in servers.items():
-                        try:
-                            await server_ws.send(json.dumps(join_notification))
-                        except Exception:
-                            pass
                 online_users_payload = {"users": {}}
                 for uid in local_users:
                     meta = get_user_meta(uid)
@@ -305,16 +202,16 @@ async def handle_connection(ws):
                 await broadcast(msg, exclude_ws={ws})
 
             elif mtype == "MSG_DIRECT":
-                # (私聊逻辑 - 使用懒惰修正)
+                # (私聊逻辑不变)
                 sender_id = msg.get("from"); recipient_id = msg.get("to")
                 print(f"[DM] Received direct message from {sender_id} to {recipient_id}")
-                
-                # 使用新的投递函数（带懒惰修正）
-                success, error_detail = await deliver_message_to_user(recipient_id, msg)
-                
-                if not success:
-                    print(f"  -> Delivery failed: {error_detail}")
-                    error_msg = create_error(sender_id, "USER_NOT_FOUND", error_detail)
+                recipient_ws = local_users.get(recipient_id)
+                if recipient_ws:
+                    await ws_send(recipient_ws, json.dumps(msg))
+                    print(f"  -> Relayed message to {recipient_id}")
+                else:
+                    print(f"  -> Recipient {recipient_id} not found. Sending error to {sender_id}.")
+                    error_msg = create_error(sender_id, "USER_NOT_FOUND", f"User '{recipient_id}' is not online.")
                     await ws_send(ws, json.dumps(error_msg))
             
             elif mtype == "LIST_REQUEST":
@@ -337,7 +234,7 @@ async def handle_connection(ws):
                 await ws.send(json.dumps(create_error(user_id or "*", "UNKNOWN_TYPE", f"unsupported type {mtype}")))
 
     except websockets.ConnectionClosed:
-        # (断开连接逻辑)
+        # (断开连接逻辑不变)
         if client_id != "unknown" and client_id in local_users:
             print(f"[DISCONNECT] user {client_id} offline")
             local_users.pop(client_id, None)
@@ -346,12 +243,6 @@ async def handle_connection(ws):
             user_meta = get_user_meta(client_id)
             left_notification = {"type": "USER_LEFT", "from": SERVER_ID, "payload": {"user_id": client_id, "display_name": user_meta.get("display_name", client_id)}}
             await broadcast(left_notification)
-            # 向其他服务器gossip用户离开
-            for server_id, server_ws in servers.items():
-                try:
-                    await server_ws.send(json.dumps(left_notification))
-                except Exception:
-                    pass
 
     except Exception:
         traceback.print_exc()

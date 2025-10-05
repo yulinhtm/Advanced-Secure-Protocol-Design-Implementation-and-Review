@@ -8,7 +8,6 @@ import time
 
 import Heartbeats_Timeouts as hb
 
-
 from cryptography.hazmat.primitives import serialization
 
 import crypto_utils as cu
@@ -16,7 +15,7 @@ import crypto_utils as cu
 
 # ===================== 配置 =====================
 HOST = "localhost"
-PORT = 8765
+PORT = 8766
 SERVER_NAME = "server-1"
 
 # ===================== 全局状态 =====================
@@ -24,7 +23,6 @@ servers = {}
 server_addrs = {}
 local_users = {}
 user_locations = {}
-
 
 # ===================== 数据库 (不变) =====================
 DB = "user.db"
@@ -205,9 +203,7 @@ async def handle_connection(ws):
         traceback.print_exc()
 
 
-def handle_server_timeout(server_id):
-    print(f"[CALLBACK] Server {server_id} is considered offline by heartbeat timeout")
-    hb.presence_stale_callback = handle_server_timeout
+
 
 
 
@@ -216,7 +212,7 @@ def handle_server_timeout(server_id):
 # ===================== 启动 (不变) =====================
 async def main():
     print(f"[BOOT] Server {SERVER_ID} starting at ws://{HOST}:{PORT}")
-
+    
     asyncio.create_task(hb.send_heartbeats_periodically())
     asyncio.create_task(hb.monitor_connections_periodically())
 
