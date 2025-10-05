@@ -53,84 +53,61 @@
 </div>
 
 <script>
-    // --- DOM Elements ---
+    // --- DOM Elements (unchanged) ---
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
     const msgEl = document.getElementById('msg');
 
-    // MODIFIED: Removed all modal-related DOM element selections
+    // --- Tab Switching (unchanged) ---
+    tabLogin.addEventListener('click', () => { loginForm.classList.remove('hidden'); registerForm.classList.add('hidden'); tabLogin.classList.add('active'); tabRegister.classList.remove('active'); if (msgEl) msgEl.textContent = ''; });
+    tabRegister.addEventListener('click', () => { registerForm.classList.remove('hidden'); loginForm.classList.add('hidden'); tabRegister.classList.add('active'); tabLogin.classList.remove('active'); if (msgEl) msgEl.textContent = ''; });
 
-    // --- Tab Switching ---
-    tabLogin.addEventListener('click', () => {
-        loginForm.classList.remove('hidden');
-        registerForm.classList.add('hidden');
-        tabLogin.classList.add('active');
-        tabRegister.classList.remove('active');
-        if (msgEl) msgEl.textContent = '';
-    });
-    tabRegister.addEventListener('click', () => {
-        registerForm.classList.remove('hidden');
-        loginForm.classList.add('hidden');
-        tabRegister.classList.add('active');
-        tabLogin.classList.remove('active');
-        if (msgEl) msgEl.textContent = '';
-    });
+    // --- Helper Functions (unchanged) ---
+    function showMsg(text, isError = false) { if (!msgEl) return; msgEl.textContent = text; msgEl.style.color = isError ? '#c00' : '#0a0'; }
+    async function generateUserId(username) { const encoder = new TextEncoder(); const data = encoder.encode(username); const hashBuffer = await crypto.subtle.digest('SHA-256', data); const hashArray = Array.from(new Uint8Array(hashBuffer)); const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); return `user-${hashHex.substring(0, 16)}`; }
 
-    // MODIFIED: Removed modal button event listeners
-
-    // --- Helper Functions ---
-    function showMsg(text, isError = false) {
-        if (!msgEl) return;
-        msgEl.textContent = text;
-        msgEl.style.color = isError ? '#c00' : '#0a0';
-    }
-
-    // This function must be the same as the one on your Python server (in crypto_utils)
-    async function generateUserId(username) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(username);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        // This format should match your server's cu.generate_user_id function
-        return `user-${hashHex.substring(0, 16)}`;
-    }
-
-    // --- WebSocket Communication ---
+    // --- MODIFIED: WebSocket Communication ---
     function connectAndSend(message, successCallback) {
         showMsg("Connecting to server...");
         const ws = new WebSocket("ws://localhost:8765");
+        
         ws.onopen = () => { ws.send(JSON.stringify(message)); showMsg("Waiting for reply..."); };
+        
         ws.onmessage = (event) => {
             const response = JSON.parse(event.data);
-            if (response.type === "ACK") { successCallback(response); }
-            else if (response.type === "ERROR") {
+            console.log("Received from server:", response);
+
+            if (response.type === "ACK") {
+                // This is the confirmation we were waiting for. Call success and close.
+                successCallback(response);
+                ws.close();
+            } else if (response.type === "ERROR") {
+                // An error happened. Show it and close.
                 const errorDetails = response.payload ? response.payload.detail : "Unknown server error";
                 showMsg(`Error: ${errorDetails}`, true);
-            } else { showMsg(`Received unexpected message type: ${response.type}`, true); }
-            ws.close();
+                ws.close();
+            } else {
+                // It's a different message (like USER_LIST_UPDATE). 
+                // We can ignore it on the login page and just wait for the ACK.
+                console.log("Ignoring setup message on login page:", response.type);
+            }
         };
+
         ws.onerror = () => { showMsg("Connection to server failed. Is the server running?", true); };
     }
 
-    // --- MODIFIED: Registration Form ---
+    // --- Registration Form (unchanged) ---
     registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const displayName = document.getElementById('register-username').value.trim();
         const password = document.getElementById('register-password').value;
-        if (password !== document.getElementById('register-confirm-password').value) {
-            showMsg("Passwords do not match!", true);
-            return;
-        }
-
+        if (password !== document.getElementById('register-confirm-password').value) { showMsg("Passwords do not match!", true); return; }
         const userId = await generateUserId(displayName);
         const payload = { "display_name": displayName, "pubkey": "placeholder", "privkey_store": "placeholder", "plain_password": password, "salt": "placeholder" };
         const registerMessage = { "type": "USER_REGISTER", "from": userId, "to": "server-1", "ts": Date.now(), "payload": payload, "sig": "" };
-
         connectAndSend(registerMessage, (response) => {
-            // MODIFIED: Show simple success message and redirect directly to chat
             showMsg("Create Successful", false);
             localStorage.setItem('user_id', userId);
             localStorage.setItem('display_name', displayName);
@@ -138,18 +115,15 @@
         });
     });
 
-    // --- MODIFIED: Login Form ---
+    // --- Login Form (unchanged) ---
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const displayName = document.getElementById('login-username').value.trim();
         const password = document.getElementById('login-password').value;
-        
         const userId = await generateUserId(displayName);
         const payload = { "pubkey": "placeholder", "plain_password": password };
         const loginMessage = { "type": "USER_HELLO", "from": userId, "to": "server-1", "ts": Date.now(), "payload": payload, "sig": "" };
-
         connectAndSend(loginMessage, (response) => {
-            // MODIFIED: Show new success message
             showMsg("Welcome to Join Us", false);
             localStorage.setItem('user_id', userId);
             localStorage.setItem('display_name', displayName);
