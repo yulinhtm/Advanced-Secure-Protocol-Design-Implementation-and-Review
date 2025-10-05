@@ -304,8 +304,7 @@ async def user_advertise(the_user_id, meta, pubkey_str):
             "pubkey":pubkey_str
         }
 
-        encrypted_payload = encrypt_payload_fields(payload_fields, server_pubkeys[to_server_id], MAX_RSA_PLAINTEXT)
-        canonical_bytes = json.dumps(encrypted_payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+        canonical_bytes = json.dumps(payload_fields, sort_keys=True, separators=(',', ':')).encode("utf-8")
         sig = sign_payload(private_key, canonical_bytes)
 
         advertise_msg = {
@@ -313,7 +312,7 @@ async def user_advertise(the_user_id, meta, pubkey_str):
             "from": SERVER_ID,
             "to": to_server_id,
             "ts": int(time.time() * 1000),
-            "payload": encrypted_payload,
+            "payload": payload_fields,
             "sig": sig
         }
 
@@ -344,8 +343,7 @@ async def user_remove(the_user_id):
             "server_id": SERVER_ID, 
         }
 
-        encrypted_payload = encrypt_payload_fields(payload_fields, server_pubkeys[to_server_id], MAX_RSA_PLAINTEXT)
-        canonical_bytes = json.dumps(encrypted_payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+        canonical_bytes = json.dumps(payload_fields, sort_keys=True, separators=(',', ':')).encode("utf-8")
         sig = sign_payload(private_key, canonical_bytes)
 
         advertise_msg = {
@@ -353,7 +351,7 @@ async def user_remove(the_user_id):
             "from": SERVER_ID,
             "to": to_server_id,
             "ts": int(time.time() * 1000),
-            "payload": encrypted_payload,
+            "payload": payload_fields,
             "sig": sig
         }
 
@@ -540,7 +538,7 @@ async def handle_connection(ws):
                 
             elif msg_type == "USER_ADVERTISE":
                 advertising_server_id = msg.get("from")
-                payload_encrypted = msg.get("payload", {})
+                payload = msg.get("payload", {})
                 pubkey = server_pubkeys.get(advertising_server_id)
                 if pubkey is not None:
                     print("Found pubkey:", pubkey)
@@ -550,16 +548,8 @@ async def handle_connection(ws):
                     await ws.send(json.dumps(error_message))
                     continue
 
-                if not payload_encrypted:
+                if not payload:
                     error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID, advertising_server_id)
-                    await ws.send(json.dumps(error_message))
-                    continue
-
-                payload = {}
-                try:
-                    payload = decrypt_payload_fields(payload_encrypted, private_key)
-                except Exception as e:
-                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID, advertising_server_id)
                     await ws.send(json.dumps(error_message))
                     continue
 
@@ -599,7 +589,7 @@ async def handle_connection(ws):
                 
             elif msg_type == "USER_REMOVE":
                 advertising_server_id = msg.get("from")
-                payload_encrypted = msg.get("payload", {})
+                payload = msg.get("payload", {})
                 pubkey = server_pubkeys.get(advertising_server_id)
                 if pubkey is not None:
                     print("Found pubkey:", pubkey)
@@ -609,18 +599,11 @@ async def handle_connection(ws):
                     await ws.send(json.dumps(error_message))
                     continue
 
-                if not payload_encrypted:
+                if not payload:
                     error_message = create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID, advertising_server_id)
                     await ws.send(json.dumps(error_message))
                     continue
 
-                payload = {}
-                try:
-                    payload = decrypt_payload_fields(payload_encrypted, private_key)
-                except Exception as e:
-                    error_message = create_error_message(private_key, "DECRYPT_FAIL", "Decryption failed", SERVER_ID, advertising_server_id)
-                    await ws.send(json.dumps(error_message))
-                    continue
 
                 remove_user_id = payload.get("user_id")
                 remove_server_id = payload.get("server_id")
@@ -635,12 +618,12 @@ async def handle_connection(ws):
                     continue
                     
                     
-                if announced_user_id in server_users:
+                if remove_user_id in server_users:
                     # Remove from server_users
                     del server_users[announced_user_id]
                     
                     # Remove from user_locations if it exists there
-                    if announced_user_id in user_locations:
+                    if remove_user_id in user_locations:
                         del user_locations[announced_user_id]
                     
                     print(f"User {announced_user_id} removed successfully.")
