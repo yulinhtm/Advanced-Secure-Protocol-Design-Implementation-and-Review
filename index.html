@@ -12,9 +12,7 @@
 <body>
   <div class="app-grid">
     <aside class="sidebar" aria-label="Chats list">
-      <header class="sidebar__header">
-        <h1>Chat</h1>
-      </header>
+      <header class="sidebar__header"><h1>Chat</h1></header>
       <div class="sidebar__section">CHANNELS</div>
       <ul class="chat-list" id="channel-list"></ul>
       <div class="sidebar__section">ONLINE USERS</div>
@@ -33,7 +31,10 @@
         <button id="logout-button" class="btn">Logout</button>
       </header>
       <section class="messages" id="messages-container" role="log" aria-live="polite"></section>
+      
       <footer class="composer" aria-label="Message composer">
+        <button class="btn btn-icon" id="file-upload-button" title="Attach file">+</button>
+        
         <input class="input" id="message-input" type="text" placeholder="Write a message..." aria-label="Write a message" />
         <button class="btn btn-send" id="send-button" title="Send">Send</button>
       </footer>
@@ -51,132 +52,36 @@
     const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('send-button');
     const logoutButton = document.getElementById('logout-button');
+    const fileUploadButton = document.getElementById('file-upload-button'); // NEW: File upload button element
     
     const LOGGED_IN_USER_ID = localStorage.getItem('user_id');
     const DISPLAY_NAME = localStorage.getItem('display_name') || LOGGED_IN_USER_ID;
 
     if (!LOGGED_IN_USER_ID) { window.location.href = 'login.html'; }
 
-    // --- App State ---
+    // (App State and Rendering Functions are unchanged)
     let activeChat = 'public';
     let onlineUsers = {};
     let messageHistories = { 'public': [] };
-
-    // --- Rendering Functions ---
-    function addSystemMessage(text) {
-        messagesContainer.innerHTML += `<div class="divider"><span>${text}</span></div>`;
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-
-    function addOutgoingMessage(text) {
-        const myInitials = DISPLAY_NAME.substring(0, 2).toUpperCase();
-        messagesContainer.innerHTML += `
-        <article class="bubble-row me">
-          <div class="bubble bubble-out">
-            <div class="bubble-text">${text}</div>
-          </div>
-          <div class="avatar">${myInitials}</div>
-        </article>`;
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-
-    function addIncomingMessage(sender, text) {
-        const senderInitial = sender.substring(0, 2).toUpperCase();
-        const senderNameHtml = activeChat === 'public' ? `<div class="sender-name">${sender}</div>` : '';
-        messagesContainer.innerHTML += `
-        <article class="bubble-row">
-            <div class="avatar">${senderInitial}</div>
-            <div class="bubble bubble-in">
-                ${senderNameHtml}
-                <div class="bubble-text">${text}</div>
-            </div>
-        </article>`;
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-    
-    function renderMessages() {
-        messagesContainer.innerHTML = '';
-        const history = messageHistories[activeChat] || [];
-        history.forEach(msg => {
-            if (msg.type === 'system') { addSystemMessage(msg.text); }
-            else if (msg.from === LOGGED_IN_USER_ID) { addOutgoingMessage(msg.payload.ciphertext); }
-            else {
-                const senderName = onlineUsers[msg.from]?.displayName || msg.from;
-                addIncomingMessage(senderName, msg.payload.ciphertext);
-            }
-        });
-    }
-
-    function renderSidebar() {
-        channelList.innerHTML = `<li class="chat-item ${activeChat === 'public' ? 'is-active' : ''}" data-userid="public"><div class="avatar">GC</div><div class="chat-item__main"><div class="row"><span class="name">Global Chat</span></div><div class="snippet">Public channel for everyone</div></div></li>`;
-        onlineUsersList.innerHTML = '';
-        Object.entries(onlineUsers).forEach(([userId, userData]) => {
-            if (userId === LOGGED_IN_USER_ID) return;
-            const unreadBadge = userData.unread > 0 ? `<div class="unread-badge">${userData.unread}</div>` : '';
-            onlineUsersList.innerHTML += `<li class="chat-item ${activeChat === userId ? 'is-active' : ''}" data-userid="${userId}"><div class="avatar">${userData.displayName.substring(0, 2).toUpperCase()}</div><div class="chat-item__main"><div class="row"><span class="name">${userData.displayName}</span>${unreadBadge}</div><div class="snippet">Online</div></div></li>`;
-        });
-    }
-
-    function renderChatView() {
-        if (activeChat === 'public') {
-            chatAvatar.textContent = 'GC'; chatName.textContent = 'Global Chat'; chatStatus.textContent = 'Public Channel';
-        } else {
-            const userData = onlineUsers[activeChat];
-            if (userData) {
-                chatAvatar.textContent = userData.displayName.substring(0, 2).toUpperCase();
-                chatName.textContent = userData.displayName;
-                chatStatus.textContent = 'Online';
-            }
-        }
-        renderMessages();
-    }
+    function addSystemMessage(text) { /* ... */ }
+    function addOutgoingMessage(text) { /* ... */ }
+    function addIncomingMessage(sender, text) { /* ... */ }
+    function renderMessages() { /* ... */ }
+    function renderSidebar() { /* ... */ }
+    function renderChatView() { /* ... */ }
+    // (Omitted for brevity, same as previous version)
+    function addSystemMessage(text) { messagesContainer.innerHTML += `<div class="divider"><span>${text}</span></div>`; messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    function addOutgoingMessage(text) { const myInitials = DISPLAY_NAME.substring(0, 2).toUpperCase(); messagesContainer.innerHTML += `<article class="bubble-row me"><div class="bubble bubble-out"><div class="bubble-text">${text}</div></div><div class="avatar">${myInitials}</div></article>`; messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    function addIncomingMessage(sender, text) { const senderInitial = sender.substring(0, 2).toUpperCase(); const senderNameHtml = activeChat === 'public' ? `<div class="sender-name">${sender}</div>` : ''; messagesContainer.innerHTML += `<article class="bubble-row"><div class="avatar">${senderInitial}</div><div class="bubble bubble-in">${senderNameHtml}<div class="bubble-text">${text}</div></div></article>`; messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    function renderMessages() { messagesContainer.innerHTML = ''; const history = messageHistories[activeChat] || []; history.forEach(msg => { if (msg.type === 'system') { addSystemMessage(msg.text); } else if (msg.from === LOGGED_IN_USER_ID) { addOutgoingMessage(msg.payload.ciphertext); } else { const senderName = onlineUsers[msg.from]?.displayName || msg.from; addIncomingMessage(senderName, msg.payload.ciphertext); } }); }
+    function renderSidebar() { channelList.innerHTML = `<li class="chat-item ${activeChat === 'public' ? 'is-active' : ''}" data-userid="public"><div class="avatar">GC</div><div class="chat-item__main"><div class="row"><span class="name">Global Chat</span></div><div class="snippet">Public channel for everyone</div></div></li>`; onlineUsersList.innerHTML = ''; Object.entries(onlineUsers).forEach(([userId, userData]) => { if (userId === LOGGED_IN_USER_ID) return; const unreadBadge = userData.unread > 0 ? `<div class="unread-badge">${userData.unread}</div>` : ''; onlineUsersList.innerHTML += `<li class="chat-item ${activeChat === userId ? 'is-active' : ''}" data-userid="${userId}"><div class="avatar">${userData.displayName.substring(0, 2).toUpperCase()}</div><div class="chat-item__main"><div class="row"><span class="name">${userData.displayName}</span>${unreadBadge}</div><div class="snippet">Online</div></div></li>`; }); }
+    function renderChatView() { if (activeChat === 'public') { chatAvatar.textContent = 'GC'; chatName.textContent = 'Global Chat'; chatStatus.textContent = 'Public Channel'; } else { const userData = onlineUsers[activeChat]; if (userData) { chatAvatar.textContent = userData.displayName.substring(0, 2).toUpperCase(); chatName.textContent = userData.displayName; chatStatus.textContent = 'Online'; } } renderMessages(); }
 
     // --- WebSocket & DOM Event Handlers ---
     const ws = new WebSocket("ws://localhost:8765");
-    ws.onopen = () => {
-        addSystemMessage("Connected to server.");
-        ws.send(JSON.stringify({ "type": "USER_ANNOUNCE_LOGIN", "from": LOGGED_IN_USER_ID, "payload": { "display_name": DISPLAY_NAME }}));
-    };
-    ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        switch (message.type) {
-            case 'USER_LIST_UPDATE': onlineUsers = message.payload.users || {}; renderSidebar(); break;
-            case 'USER_JOINED':
-                onlineUsers[message.payload.user_id] = { displayName: message.payload.display_name, unread: 0 };
-                renderSidebar();
-                const joinMsg = { type: 'system', text: `${message.payload.display_name} has joined.`};
-                if (!messageHistories['public']) messageHistories['public'] = [];
-                messageHistories['public'].push(joinMsg);
-                if (activeChat === 'public') renderMessages();
-                break;
-            case 'USER_LEFT':
-                const leftUserName = onlineUsers[message.payload.user_id]?.displayName || message.payload.user_id;
-                delete onlineUsers[message.payload.user_id];
-                renderSidebar();
-                const leftMsg = { type: 'system', text: `${leftUserName} has left.`};
-                if (!messageHistories['public']) messageHistories['public'] = [];
-                messageHistories['public'].push(leftMsg);
-                if (activeChat === 'public') renderMessages();
-                break;
-            case 'MSG_PUBLIC_CHANNEL':
-            case 'MSG_DIRECT':
-                const isDirect = message.type === 'MSG_DIRECT';
-                const senderId = message.from;
-                const chatId = isDirect ? senderId : 'public';
-                if (senderId !== LOGGED_IN_USER_ID) {
-                    if (!messageHistories[chatId]) { messageHistories[chatId] = []; }
-                    messageHistories[chatId].push(message);
-                    if (activeChat === chatId) {
-                        const senderName = onlineUsers[senderId]?.displayName || senderId;
-                        addIncomingMessage(senderName, message.payload.ciphertext);
-                    } else if (isDirect && onlineUsers[senderId]) {
-                        onlineUsers[senderId].unread = (onlineUsers[senderId].unread || 0) + 1;
-                        renderSidebar();
-                    }
-                }
-                break;
-        }
-    };
+    // (WebSocket handlers are unchanged)
+    ws.onopen = () => { addSystemMessage("Connected to server."); ws.send(JSON.stringify({ "type": "USER_ANNOUNCE_LOGIN", "from": LOGGED_IN_USER_ID, "payload": { "display_name": DISPLAY_NAME }})); };
+    ws.onmessage = (event) => { const message = JSON.parse(event.data); switch (message.type) { case 'USER_LIST_UPDATE': onlineUsers = message.payload.users || {}; renderSidebar(); break; case 'USER_JOINED': onlineUsers[message.payload.user_id] = { displayName: message.payload.display_name, unread: 0 }; renderSidebar(); const joinMsg = { type: 'system', text: `${message.payload.display_name} has joined.`}; if (!messageHistories['public']) messageHistories['public'] = []; messageHistories['public'].push(joinMsg); if (activeChat === 'public') renderMessages(); break; case 'USER_LEFT': const leftUserName = onlineUsers[message.payload.user_id]?.displayName || message.payload.user_id; delete onlineUsers[message.payload.user_id]; renderSidebar(); const leftMsg = { type: 'system', text: `${leftUserName} has left.`}; if (!messageHistories['public']) messageHistories['public'] = []; messageHistories['public'].push(leftMsg); if (activeChat === 'public') renderMessages(); break; case 'MSG_PUBLIC_CHANNEL': case 'MSG_DIRECT': const isDirect = message.type === 'MSG_DIRECT'; const senderId = message.from; const chatId = isDirect ? senderId : 'public'; if (senderId !== LOGGED_IN_USER_ID) { if (!messageHistories[chatId]) { messageHistories[chatId] = []; } messageHistories[chatId].push(message); if (activeChat === chatId) { const senderName = onlineUsers[senderId]?.displayName || senderId; addIncomingMessage(senderName, message.payload.ciphertext); } else if (isDirect && onlineUsers[senderId]) { onlineUsers[senderId].unread = (onlineUsers[senderId].unread || 0) + 1; renderSidebar(); } } break; } };
     ws.onclose = () => { addSystemMessage("Disconnected."); };
     ws.onerror = () => { addSystemMessage("Connection error."); };
     
@@ -193,22 +98,45 @@
         messageInput.focus();
     }
     
-    function handleSidebarClick(event) {
-        const target = event.target.closest('.chat-item');
-        if (!target || !target.dataset.userid) return;
-        const newActiveChat = target.dataset.userid;
-        if (newActiveChat === activeChat) return;
-        activeChat = newActiveChat;
-        if (onlineUsers[activeChat]) { onlineUsers[activeChat].unread = 0; }
-        renderChatView();
-        renderSidebar();
-    }
-    
+    function handleSidebarClick(event) { /* ... */ }
+    // (Omitted for brevity, same as previous version)
+    function handleSidebarClick(event) { const target = event.target.closest('.chat-item'); if (!target || !target.dataset.userid) return; const newActiveChat = target.dataset.userid; if (newActiveChat === activeChat) return; activeChat = newActiveChat; if (onlineUsers[activeChat]) { onlineUsers[activeChat].unread = 0; } renderChatView(); renderSidebar(); }
+
     sendButton.addEventListener('click', sendMessage);
     messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
     logoutButton.addEventListener('click', () => { localStorage.clear(); if (ws.readyState === WebSocket.OPEN) ws.close(); window.location.href = 'login.html'; });
     channelList.addEventListener('click', handleSidebarClick);
     onlineUsersList.addEventListener('click', handleSidebarClick);
+
+    // --- NEW: File Upload Logic ---
+    // 1. Create a hidden file input element
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.style.display = 'none';
+    document.body.appendChild(fileInput);
+
+    // 2. When the '+' button is clicked, trigger the hidden file input
+    fileUploadButton.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // 3. When a file is selected, handle it
+    fileInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+
+        console.log('Selected file:', file.name, 'Size:', file.size, 'Type:', file.type);
+        addSystemMessage(`Preparing to send file: ${file.name}`);
+
+        // IMPORTANT: This is where you would start the file transfer process
+        // according to your SOCP protocol (sending FILE_START, FILE_CHUNK, etc.).
+        // For now, we just log it to the console.
+
+        // Clear the input value so the user can select the same file again
+        event.target.value = null;
+    });
 
     // Initial Render
     renderSidebar();

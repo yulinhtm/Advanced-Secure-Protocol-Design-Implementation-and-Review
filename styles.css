@@ -158,3 +158,23 @@ body{
     right: -12px;
     border-left-color: var(--bubble-out); /* Black tail */
 }
+/* --- NEW: Style for the icon button (+) --- */
+.btn-icon {
+    height: 38px;
+    width: 38px;
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    cursor: pointer;
+    background: #ffffff;
+    color: var(--muted);
+    font-size: 24px;
+    font-weight: 300;
+    line-height: 38px; /* Center the '+' vertically */
+    flex-shrink: 0; /* Prevent button from shrinking */
+    transition: background-color 0.2s;
+}
+
+.btn-icon:hover {
+    background-color: var(--bg);
+}
