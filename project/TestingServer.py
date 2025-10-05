@@ -510,23 +510,6 @@ async def user_remove(the_user_id):
 
         await ws.send(json.dumps(advertise_msg))
         
-        response_raw = await ws.recv()
-        try:
-            response = json.loads(response_raw)     # convert to dict
-        except json.JSONDecodeError:
-            print("Invalid JSON received:", response_raw)
-        
-        payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
-
-        if cu.verify_json_signature(server_pubkeys[to_server_id], payload_extracted, sig_extracted):
-            print("Signature is valid\n")
-            if response.get("type") == "ACK":
-                print("Valid response from introducer:", response.get("type"))
-                
-            elif response.get("type") == "ERROR":
-                print("Introducer returned an error:", response.get("message"))
-        else:
-            print("Signature is INVALID")
 
 # ===================== 连接处理 =====================
 async def handle_connection(ws):
