@@ -15,31 +15,24 @@
       <header class="sidebar__header">
         <h1>Chat</h1>
       </header>
+      <div class="sidebar__section">CHANNELS</div>
+      <ul class="chat-list" id="channel-list"></ul>
       <div class="sidebar__section">ONLINE USERS</div>
-      <ul class="chat-list" id="online-users-list">
-        <li class="chat-item">
-            <div class="chat-item__main">
-                <span class="name">Connecting...</span>
-            </div>
-        </li>
-      </ul>
+      <ul class="chat-list" id="online-users-list"></ul>
     </aside>
 
     <main class="main" aria-label="Conversation">
       <header class="chat-header">
         <div class="chat-peer">
-          <div class="avatar big">GC</div>
+          <div class="avatar big" id="chat-avatar">GC</div>
           <div class="peer-meta">
-            <div class="peer-name">Global Chat</div>
-            <div class="peer-status">Public Channel</div>
+            <div class="peer-name" id="chat-name">Global Chat</div>
+            <div class="peer-status" id="chat-status">Public Channel</div>
           </div>
         </div>
+        <button id="logout-button" class="btn">Logout</button>
       </header>
-
-      <section class="messages" id="messages-container" role="log" aria-live="polite">
-        <div class="divider"><span>Welcome!</span></div>
-      </section>
-
+      <section class="messages" id="messages-container" role="log" aria-live="polite"></section>
       <footer class="composer" aria-label="Message composer">
         <input class="input" id="message-input" type="text" placeholder="Write a message..." aria-label="Write a message" />
         <button class="btn btn-send" id="send-button" title="Send">Send</button>
@@ -47,122 +40,179 @@
     </main>
   </div>
 
-  <script>
-    // --- WebSocket and DOM Element Setup ---
+<script>
+    // --- DOM & User Info ---
+    const messagesContainer = document.getElementById('messages-container');
+    const channelList = document.getElementById('channel-list');
+    const onlineUsersList = document.getElementById('online-users-list');
+    const chatAvatar = document.getElementById('chat-avatar');
+    const chatName = document.getElementById('chat-name');
+    const chatStatus = document.getElementById('chat-status');
     const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('send-button');
-    const messagesContainer = document.getElementById('messages-container');
-    const onlineUsersList = document.getElementById('online-users-list');
-
-    // --- State variables (replace with actual user data after login) ---
-    // IMPORTANT: In a real app, these values would be set after a secure login process.
-    const MOCK_USER_ID = "user-" + Math.random().toString(16).substring(2, 8);
-    const MOCK_SERVER_ID = "server-id-placeholder"; // The server the client connects to
-
-    // --- WebSocket Connection ---
-    const ws = new WebSocket("ws://localhost:8765");
-
-    ws.onopen = () => {
-      console.log("Connected to the WebSocket server.");
-      // In a real implementation, you would send a proper USER_HELLO message here.
-      // For now, let's just log it.
-      console.log("Sending a mock USER_HELLO for:", MOCK_USER_ID);
-      // Example of a real USER_HELLO (requires user's keys)
-      // const helloMsg = { type: "USER_HELLO", from: MOCK_USER_ID, to: MOCK_SERVER_ID, payload: { pubkey: "..." } };
-      // ws.send(JSON.stringify(helloMsg));
-      
-      addSystemMessage("Connected to server.");
-    };
-
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      console.log("Received message:", message);
-
-      // This is where you would handle different message types from the server
-      // For this example, we will just display any message as a simple bubble.
-      
-      // A real implementation would check message.type, e.g., "MSG_DIRECT", "USER_LIST_UPDATE"
-      // For now, we assume any message is a chat message.
-      const sender = message.from || "Unknown";
-      const text = message.payload ? JSON.stringify(message.payload) : (message.text || "No text");
-      
-      addIncomingMessage(sender, text);
-    };
-
-    ws.onclose = () => {
-      console.log("Disconnected from the WebSocket server.");
-      addSystemMessage("Disconnected. Please refresh to reconnect.");
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      addSystemMessage("Connection error.");
-    };
-
-    // --- UI Functions ---
-
-    // Function to add a system message (like "Connected") to the chat window
-    function addSystemMessage(text) {
-        const dividerHtml = `<div class="divider"><span>${text}</span></div>`;
-        messagesContainer.insertAdjacentHTML('beforeend', dividerHtml);
-    }
+    const logoutButton = document.getElementById('logout-button');
     
-    // Function to add an OUTGOING message bubble
+    const LOGGED_IN_USER_ID = localStorage.getItem('user_id');
+    const DISPLAY_NAME = localStorage.getItem('display_name') || LOGGED_IN_USER_ID;
+
+    if (!LOGGED_IN_USER_ID) { window.location.href = 'login.html'; }
+
+    // --- App State ---
+    let activeChat = 'public';
+    let onlineUsers = {};
+    let messageHistories = { 'public': [] };
+
+    // --- Rendering Functions ---
+    function addSystemMessage(text) {
+        messagesContainer.innerHTML += `<div class="divider"><span>${text}</span></div>`;
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
     function addOutgoingMessage(text) {
-      const bubbleHtml = `
+        const myInitials = DISPLAY_NAME.substring(0, 2).toUpperCase();
+        messagesContainer.innerHTML += `
         <article class="bubble-row me">
           <div class="bubble bubble-out">
             <div class="bubble-text">${text}</div>
           </div>
+          <div class="avatar">${myInitials}</div>
         </article>`;
-      messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-
-    // Function to add an INCOMING message bubble
-    function addIncomingMessage(sender, text) {
-        const bubbleHtml = `
-        <article class="bubble-row">
-            <div class="avatar">${sender.substring(0, 2).toUpperCase()}</div>
-            <div class="bubble bubble-in">
-                <div class="bubble-text">${text}</div>
-            </div>
-        </article>`;
-        messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    // --- Event Handling ---
-    function sendMessage() {
-      const messageText = messageInput.value.trim();
-      if (messageText === '') return;
-
-      // 1. Add the bubble to our own UI immediately for a responsive feel
-      addOutgoingMessage(messageText);
-      
-      // 2. Send the message to the server via WebSocket
-      const messageObject = {
-        type: "MSG_DIRECT", // Or MSG_PUBLIC_CHANNEL
-        from: MOCK_USER_ID,
-        to: "recipient-placeholder", 
-        payload: {
-            ciphertext: messageText // This should be ENCRYPTED ciphertext
-        }
-      };
-      ws.send(JSON.stringify(messageObject));
-
-      // 3. Clear the input field
-      messageInput.value = '';
-      messageInput.focus();
+    function addIncomingMessage(sender, text) {
+        const senderInitial = sender.substring(0, 2).toUpperCase();
+        const senderNameHtml = activeChat === 'public' ? `<div class="sender-name">${sender}</div>` : '';
+        messagesContainer.innerHTML += `
+        <article class="bubble-row">
+            <div class="avatar">${senderInitial}</div>
+            <div class="bubble bubble-in">
+                ${senderNameHtml}
+                <div class="bubble-text">${text}</div>
+            </div>
+        </article>`;
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    function renderMessages() {
+        messagesContainer.innerHTML = '';
+        const history = messageHistories[activeChat] || [];
+        history.forEach(msg => {
+            if (msg.type === 'system') { addSystemMessage(msg.text); }
+            else if (msg.from === LOGGED_IN_USER_ID) { addOutgoingMessage(msg.payload.ciphertext); }
+            else {
+                const senderName = onlineUsers[msg.from]?.displayName || msg.from;
+                addIncomingMessage(senderName, msg.payload.ciphertext);
+            }
+        });
     }
 
+    function renderSidebar() {
+        channelList.innerHTML = `<li class="chat-item ${activeChat === 'public' ? 'is-active' : ''}" data-userid="public"><div class="avatar">GC</div><div class="chat-item__main"><div class="row"><span class="name">Global Chat</span></div><div class="snippet">Public channel for everyone</div></div></li>`;
+        onlineUsersList.innerHTML = '';
+        Object.entries(onlineUsers).forEach(([userId, userData]) => {
+            if (userId === LOGGED_IN_USER_ID) return;
+            const unreadBadge = userData.unread > 0 ? `<div class="unread-badge">${userData.unread}</div>` : '';
+            onlineUsersList.innerHTML += `<li class="chat-item ${activeChat === userId ? 'is-active' : ''}" data-userid="${userId}"><div class="avatar">${userData.displayName.substring(0, 2).toUpperCase()}</div><div class="chat-item__main"><div class="row"><span class="name">${userData.displayName}</span>${unreadBadge}</div><div class="snippet">Online</div></div></li>`;
+        });
+    }
+
+    function renderChatView() {
+        if (activeChat === 'public') {
+            chatAvatar.textContent = 'GC'; chatName.textContent = 'Global Chat'; chatStatus.textContent = 'Public Channel';
+        } else {
+            const userData = onlineUsers[activeChat];
+            if (userData) {
+                chatAvatar.textContent = userData.displayName.substring(0, 2).toUpperCase();
+                chatName.textContent = userData.displayName;
+                chatStatus.textContent = 'Online';
+            }
+        }
+        renderMessages();
+    }
+
+    // --- WebSocket & DOM Event Handlers ---
+    const ws = new WebSocket("ws://localhost:8765");
+    ws.onopen = () => {
+        addSystemMessage("Connected to server.");
+        ws.send(JSON.stringify({ "type": "USER_ANNOUNCE_LOGIN", "from": LOGGED_IN_USER_ID, "payload": { "display_name": DISPLAY_NAME }}));
+    };
+    ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        switch (message.type) {
+            case 'USER_LIST_UPDATE': onlineUsers = message.payload.users || {}; renderSidebar(); break;
+            case 'USER_JOINED':
+                onlineUsers[message.payload.user_id] = { displayName: message.payload.display_name, unread: 0 };
+                renderSidebar();
+                const joinMsg = { type: 'system', text: `${message.payload.display_name} has joined.`};
+                if (!messageHistories['public']) messageHistories['public'] = [];
+                messageHistories['public'].push(joinMsg);
+                if (activeChat === 'public') renderMessages();
+                break;
+            case 'USER_LEFT':
+                const leftUserName = onlineUsers[message.payload.user_id]?.displayName || message.payload.user_id;
+                delete onlineUsers[message.payload.user_id];
+                renderSidebar();
+                const leftMsg = { type: 'system', text: `${leftUserName} has left.`};
+                if (!messageHistories['public']) messageHistories['public'] = [];
+                messageHistories['public'].push(leftMsg);
+                if (activeChat === 'public') renderMessages();
+                break;
+            case 'MSG_PUBLIC_CHANNEL':
+            case 'MSG_DIRECT':
+                const isDirect = message.type === 'MSG_DIRECT';
+                const senderId = message.from;
+                const chatId = isDirect ? senderId : 'public';
+                if (senderId !== LOGGED_IN_USER_ID) {
+                    if (!messageHistories[chatId]) { messageHistories[chatId] = []; }
+                    messageHistories[chatId].push(message);
+                    if (activeChat === chatId) {
+                        const senderName = onlineUsers[senderId]?.displayName || senderId;
+                        addIncomingMessage(senderName, message.payload.ciphertext);
+                    } else if (isDirect && onlineUsers[senderId]) {
+                        onlineUsers[senderId].unread = (onlineUsers[senderId].unread || 0) + 1;
+                        renderSidebar();
+                    }
+                }
+                break;
+        }
+    };
+    ws.onclose = () => { addSystemMessage("Disconnected."); };
+    ws.onerror = () => { addSystemMessage("Connection error."); };
+    
+    function sendMessage() {
+        const messageText = messageInput.value.trim();
+        if (messageText === '' || ws.readyState !== WebSocket.OPEN) return;
+        const messageType = activeChat === 'public' ? 'MSG_PUBLIC_CHANNEL' : 'MSG_DIRECT';
+        const messageObject = { "type": messageType, "from": LOGGED_IN_USER_ID, "to": activeChat, "ts": Date.now(), "payload": { "ciphertext": messageText, "sender_pub": "p", "content_sig": "p" }, "sig": "" };
+        ws.send(JSON.stringify(messageObject));
+        if (!messageHistories[activeChat]) messageHistories[activeChat] = [];
+        messageHistories[activeChat].push(messageObject);
+        addOutgoingMessage(messageText);
+        messageInput.value = '';
+        messageInput.focus();
+    }
+    
+    function handleSidebarClick(event) {
+        const target = event.target.closest('.chat-item');
+        if (!target || !target.dataset.userid) return;
+        const newActiveChat = target.dataset.userid;
+        if (newActiveChat === activeChat) return;
+        activeChat = newActiveChat;
+        if (onlineUsers[activeChat]) { onlineUsers[activeChat].unread = 0; }
+        renderChatView();
+        renderSidebar();
+    }
+    
     sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        sendMessage();
-      }
-    });
-  </script>
+    messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+    logoutButton.addEventListener('click', () => { localStorage.clear(); if (ws.readyState === WebSocket.OPEN) ws.close(); window.location.href = 'login.html'; });
+    channelList.addEventListener('click', handleSidebarClick);
+    onlineUsersList.addEventListener('click', handleSidebarClick);
+
+    // Initial Render
+    renderSidebar();
+    renderChatView();
+</script>
 </body>
 </html>
