@@ -1,101 +1,25 @@
-import json
 import base64
+import json
+import uuid
+import re
+import time
+import hashlib
+import string
+from typing import Dict, Any, Tuple, Optional
+
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.exceptions import InvalidSignature
-from typing import Tuple, Dict
-import uuid
-import string
-import hashlib
-import os
-
-def verify_json_signature(public_key: rsa.RSAPublicKey, payload: dict, signature_b64url: str) -> bool:
-    # Canonicalize the JSON payload (sorted keys, no whitespace variations)
-    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    
-    # Decode signature from base64url
-    signature_bytes = base64.urlsafe_b64decode(signature_b64url)
-    
-    try:
-        public_key.verify(
-            signature_bytes,
-            canonical_bytes,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        return True
-    except InvalidSignature:
-        return False
-    
-def extract_payload_and_signature(message: dict) -> Tuple[Dict, str]:
-    payload = message.get("payload", {})
-    signature_b64url = message.get("sig", "")
-    return payload, signature_b64url
-
-def sign_payload(private_key: rsa.RSAPrivateKey, payload_bytes: bytes) -> str:
-    signature = private_key.sign(
-        payload_bytes,
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()),
-            salt_length=padding.PSS.MAX_LENGTH
-        ),
-        hashes.SHA256()
-    )
-    # Encode signature as base64url for JSON transport
-    signature_b64url = base64.urlsafe_b64encode(signature).decode('utf-8')
-    return signature_b64url
-
-def generate_user_id(username: str) -> str:
-    # deterministic UUID based on username (UUID5)
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, username))
-
-#--for creating key(both private and public)
-def generate_rsa_keypair():
-    # Generate RSA-4096 private key
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=4096
-    )
-    
-    # Extract public key
-    public_key = private_key.public_key()
-    
-    return private_key, public_key
-
-#--for changing the password into string and private key to blob
-def serialize_publickey(private_key: rsa.RSAPrivateKey) -> str:
-    # Extract public key from private key → base64url UTF-8 string
-    pubkey_str = base64.urlsafe_b64encode(
-        private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-    ).decode("utf-8")
-    return pubkey_str
-
-def serialize_privatekey(private_key: rsa.RSAPrivateKey, password: str):
-    # Password must be bytes
-    password_bytes = password.encode("utf-8")
-
-    # Private key → PEM, encrypted with password
-    privkey_pem_encrypted = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.BestAvailableEncryption(password_bytes)
-    )
-
-    # Base64 encode so it's safe for JSON or DB storage
-    priv_blob_str = base64.urlsafe_b64encode(privkey_pem_encrypted).decode("utf-8")
-    return priv_blob_str
 
 
-#--for encrypting using desired key
-def rsa_oaep_encrypt(public_key, data: bytes) -> bytes:
+# ========== RSA 基础 ==========
 
-    encrypted = public_key.encrypt(
+def generate_rsa_keypair(bits: int = 4096) -> Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
+    priv = rsa.generate_private_key(public_exponent=65537, key_size=bits)
+    return priv, priv.public_key()
+
+
+def rsa_oaep_encrypt(public_key: rsa.RSAPublicKey, data: bytes) -> bytes:
+    return public_key.encrypt(
         data,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -103,79 +27,163 @@ def rsa_oaep_encrypt(public_key, data: bytes) -> bytes:
             label=None
         )
     )
-    return encrypted
 
-#--for decrypting using desired key
-def rsa_oaep_decrypt(private_key: rsa.RSAPrivateKey, encrypted_data: bytes) -> bytes:
 
-    decrypted = private_key.decrypt(
-        encrypted_data,
+def rsa_oaep_decrypt(private_key: rsa.RSAPrivateKey, ciphertext: bytes) -> bytes:
+    return private_key.decrypt(
+        ciphertext,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
             algorithm=hashes.SHA256(),
             label=None
         )
     )
-    return decrypted
 
-def sign_payload(private_key: rsa.RSAPrivateKey, payload_bytes: bytes) -> str:
-    
-    signature = private_key.sign(
-        payload_bytes,
+
+# ========== 签名/验签 ==========
+
+def sign_payload(privkey: rsa.RSAPrivateKey, data: bytes) -> str:
+    signature = privkey.sign(
+        data,
         padding.PSS(
             mgf=padding.MGF1(hashes.SHA256()),
             salt_length=padding.PSS.MAX_LENGTH
         ),
         hashes.SHA256()
     )
-    return base64.urlsafe_b64encode(signature).decode("utf-8")
+    return base64.urlsafe_b64encode(signature).decode("utf-8").rstrip("=")
 
-def create_error_message(private_key: rsa.RSAPrivateKey, code: str, reason: str, server_id: str, to_user: str = "no_user_id") -> dict:
 
-    # Build payload
-    payload = {
-        "code": code,
-        "reason": reason
-    }
-    
-    # Canonicalize payload
-    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
-    
-    # Sign the payload
-    signature_b64url = sign_payload(private_key, canonical_bytes)
-    
-    # Construct message
-    message = {
-        "type": "ERROR",
-        "from": server_id,
-        "to": to_user,
-        "payload": payload,
-        "sig": signature_b64url
-    }
-    return message
+def verify_signature(pubkey: rsa.RSAPublicKey, data: bytes, sig_b64: str) -> bool:
+    try:
+        pad = '=' * (-len(sig_b64) % 4)
+        sig = base64.urlsafe_b64decode(sig_b64 + pad)
+        pubkey.verify(
+            sig,
+            data,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return True
+    except Exception:
+        return False
 
-def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: str, to_user: str) -> dict:
-    # Build payload
-    payload = {
-        "msg_ref": msg_ref
-    }
-    
-    # Canonicalize payload
-    canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
-    
-    # Sign the payload
-    signature_b64url = sign_payload(private_key, canonical_bytes)
-    
-    # Construct message
-    message = {
-        "type": "ACK",
-        "from": server_id,
-        "to": to_user,
-        "payload": payload,
-        "sig": signature_b64url
-    }
-    
-    return message
+
+def sign_json(privkey: rsa.RSAPrivateKey, payload: Dict[str, Any]) -> str:
+    return sign_payload(privkey, canonical_json(payload).encode("utf-8"))
+
+
+def verify_json_signature(pubkey: rsa.RSAPublicKey, payload: Dict[str, Any], sig_b64: str) -> bool:
+    data = canonical_json(payload).encode("utf-8")
+    return verify_signature(pubkey, data, sig_b64)
+
+
+# ========== 公钥序列化 ==========
+
+def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
+    pub_der = pubkey.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return base64.urlsafe_b64encode(pub_der).decode("utf-8").rstrip("=")
+
+
+def deserialize_publickey(pubkey_b64: str) -> rsa.RSAPublicKey:
+    pad = '=' * (-len(pubkey_b64) % 4)
+    der = base64.urlsafe_b64decode(pubkey_b64 + pad)
+    return serialization.load_der_public_key(der)
+
+
+# ========== JSON 规范化 ==========
+
+def canonical_json(payload: Dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(',', ':'))
+
+
+def extract_payload_and_signature(envelope: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+    return envelope.get("payload", {}), envelope.get("sig", "")
+
+
+# ========== RSA Key 存取 ==========
+
+def save_rsa_keys_to_files(priv: rsa.RSAPrivateKey, pub: rsa.RSAPublicKey,
+                           priv_path: str, pub_path: str, password: Optional[str] = None):
+    enc = serialization.BestAvailableEncryption(password.encode("utf-8")) if password else serialization.NoEncryption()
+    priv_pem = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=enc
+    )
+    pub_pem = pub.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    with open(priv_path, "wb") as f:
+        f.write(priv_pem)
+    with open(pub_path, "wb") as f:
+        f.write(pub_pem)
+
+
+def load_rsa_keys_from_files(priv_path: str, pub_path: str, password: Optional[str] = None):
+    try:
+        with open(priv_path, "rb") as f:
+            priv = serialization.load_pem_private_key(
+                f.read(),
+                password=password.encode("utf-8") if password else None
+            )
+        with open(pub_path, "rb") as f:
+            pub = serialization.load_pem_public_key(f.read())
+        return priv, pub
+    except Exception:
+        return None, None
+
+
+# ========== 密码哈希 ==========
+
+def hash_password(password: str, salt: str) -> str:
+    dk = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode('utf-8'),
+        salt.encode('utf-8'),
+        100_000,
+        dklen=32
+    )
+    return base64.urlsafe_b64encode(dk).decode('utf-8').rstrip('=')
+
+
+# ========== Payload 加/解密 ==========
+
+def encrypt_payload_fields(fields: Dict[str, Any], server_pubkey: rsa.RSAPublicKey, max_len: int = 446) -> Dict[str, Any]:
+    out = {}
+    for k, v in fields.items():
+        s = str(v).encode("utf-8")
+        if len(s) <= max_len:
+            ct = rsa_oaep_encrypt(server_pubkey, s)
+            out[k] = base64.urlsafe_b64encode(ct).decode("utf-8").rstrip("=")
+        else:
+            out[k] = v
+    return out
+
+
+def decrypt_payload_fields(enc_payload: Dict[str, Any], server_privkey: rsa.RSAPrivateKey) -> Dict[str, Any]:
+    out = {}
+    for k, v in enc_payload.items():
+        if isinstance(v, str):
+            try:
+                pad = '=' * (-len(v) % 4)
+                raw = base64.urlsafe_b64decode(v + pad)
+                plain = rsa_oaep_decrypt(server_privkey, raw).decode('utf-8')
+                out[k] = plain
+                continue
+            except Exception:
+                pass
+        out[k] = v
+    return out
+
+# ====================== 验证密码是否强壮 ======================
 
 def is_strong_password(password: str) -> bool:
     if len(password) < 12:
@@ -190,106 +198,77 @@ def is_strong_password(password: str) -> bool:
         return False
     return True
 
-def save_rsa_keys_to_files(private_key, public_key, private_path="private_key.pem", public_path="public_key.pem", password: str | None = None):
 
-    # Serialize private key
-    if password is None:
-        encryption_algo = serialization.NoEncryption()
-    else:
-        encryption_algo = serialization.BestAvailableEncryption(password.encode("utf-8"))
+# ====================== UUID5 生成 ======================
 
-    pem_private = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=encryption_algo
-    )
+# 固定命名空间：请在全项目保持一致；不要随机生成
+NAMESPACE_USERID  = uuid.UUID("7b8f9f20-6d2a-47c1-9c58-1a5b9f2f3c0e")
+NAMESPACE_SERVER  = uuid.UUID("9c6d5b90-aaaa-4b1b-88d2-ff1122334455")
 
-    # Serialize public key
-    pem_public = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
+def _normalize_username(name: str) -> str:
+    """
+    统一用户名：去首尾空格、压缩连续空白、转小写。
+    确保 'Alice' 与 ' alice  ' 生成同一 user_id。
+    """
+    return re.sub(r"\s+", " ", name.strip().lower())
+
+def generate_user_id(username: str) -> str:
+    """
+    基于命名空间 + 规范化用户名的 UUID5。确定性且跨机器一致。
+    """
+    norm = _normalize_username(username)
+    return str(uuid.uuid5(NAMESPACE_USERID, norm))
+
+def generate_server_id(server_name: str) -> str:
+    """
+    基于命名空间 + server_name 的 UUID5。
+    这样同一个 server_name 始终生成相同的 Server ID。
+    """
+    norm = server_name.strip().lower()
+    return str(uuid.uuid5(NAMESPACE_SERVER, norm))
+
+
+# === base64url helpers ===
+def b64url_encode(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode("utf-8").rstrip("=")
+
+def b64url_decode(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+# === serialize_publickey 保持返回 str；客户端不要 .decode() ===
+def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
+    pub_der = pubkey.public_bytes(
+        encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
+    return b64url_encode(pub_der)
 
-    # Save to files
-    with open(private_path, "wb") as f:
-        f.write(pem_private)
-    with open(public_path, "wb") as f:
-        f.write(pem_public)
-        
-def load_rsa_keys_from_files(private_path: str, public_path: str, password: str | None = None) -> tuple[rsa.RSAPrivateKey | None, rsa.RSAPublicKey | None]:
-    private_key = None
-    public_key = None
 
-    # Load private key if exists
-    if os.path.exists(private_path):
-        with open(private_path, "rb") as f:
-            try:
-                private_key = serialization.load_pem_private_key(
-                    f.read(),
-                    password=password.encode("utf-8") if password else None
-                )
-            except Exception:
-                private_key = None
+# === salt + 私钥加密（客户端 register 用） ===
+import os
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-    # Load public key if exists
-    if os.path.exists(public_path):
-        with open(public_path, "rb") as f:
-            try:
-                public_key = serialization.load_pem_public_key(f.read())
-            except Exception:
-                public_key = None
+def random_salt(n: int = 16) -> str:
+    return b64url_encode(os.urandom(n))
 
-    return private_key, public_key
-        
-#--heshing the password 
-def hash_password(password: str, salt: str) -> str:
-    # simple hash for demo, in production use PBKDF2, scrypt, bcrypt
-    return hashlib.sha256((password + salt).encode()).hexdigest()
+def _derive_password(password: str, salt_b64: str) -> bytes:
+    salt = b64url_decode(salt_b64)
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100_000)
+    return kdf.derive(password.encode("utf-8"))
 
-def encrypt_payload_fields(payload_fields: dict, public_key, max_rsa_plaintext: int) -> dict:
-    encrypted_payload = {}
+def encrypt_private_key(priv: rsa.RSAPrivateKey, password: str, salt_b64: str) -> str:
+    pem = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.BestAvailableEncryption(_derive_password(password, salt_b64))
+    )
+    return b64url_encode(pem)
 
-    for key, value in payload_fields.items():
-        if key == "client":
-            encrypted_payload[key] = value
-            continue
 
-        field_bytes = value.encode("utf-8")
 
-        if len(field_bytes) > max_rsa_plaintext:
-            # Split into chunks for RSA encryption
-            chunks = [field_bytes[i:i+max_rsa_plaintext] for i in range(0, len(field_bytes), max_rsa_plaintext)]
-            encrypted_chunks = []
-            for chunk in chunks:
-                encrypted_chunk = rsa_oaep_encrypt(public_key, chunk)
-                encrypted_chunks.append(base64.urlsafe_b64encode(encrypted_chunk).decode("utf-8"))
-            encrypted_payload[key] = encrypted_chunks
-        else:
-            # Encrypt normally
-            encrypted_bytes = rsa_oaep_encrypt(public_key, field_bytes)
-            encrypted_payload[key] = base64.urlsafe_b64encode(encrypted_bytes).decode("utf-8")
+# ====================== 工具函数 ======================    
 
-    return encrypted_payload
-
-def decrypt_payload_fields(payload_encrypted: dict, private_key) -> dict:
-    decrypted_payload = {}
-
-    for key, value in payload_encrypted.items():
-        if key == "client":
-            decrypted_payload[key] = value
-            continue
-
-        if isinstance(value, list):
-            # Field was chunked, decrypt each piece and concatenate
-            decrypted_bytes = b""
-            for chunk_b64 in value:
-                encrypted_bytes = base64.urlsafe_b64decode(chunk_b64)
-                decrypted_bytes += rsa_oaep_decrypt(private_key, encrypted_bytes)
-            decrypted_payload[key] = decrypted_bytes.decode("utf-8")
-        else:
-            # Single encrypted field
-            encrypted_bytes = base64.urlsafe_b64decode(value)
-            decrypted_bytes = rsa_oaep_decrypt(private_key, encrypted_bytes)
-            decrypted_payload[key] = decrypted_bytes.decode("utf-8")
-
-    return decrypted_payload
+def int_ts_ms() -> int:
+    return int(time.time() * 1000)

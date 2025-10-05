@@ -12,141 +12,156 @@
 <body>
   <div class="app-grid">
     <aside class="sidebar" aria-label="Chats list">
-      <header class="sidebar__header">
-        <h1>Chat</h1>
-        <button class="btn btn-primary">New Chat</button>
-      </header>
-
-      <div class="sidebar__search">
-        <input type="text" placeholder="Search..." aria-label="Search chats" />
-      </div>
-
-      <div class="sidebar__section">RECENT CHATS</div>
-
-      <ul class="chat-list">
-        <li class="chat-item is-online">
-          <div class="avatar">SC</div>
-          <div class="chat-item__main">
-            <div class="row">
-              <span class="name">Support ChatBot</span>
-              <span class="time">11:08 am</span>
-            </div>
-            <div class="row">
-              <span class="snippet">Online</span>
-            </div>
-          </div>
-        </li>
-
-        <li class="chat-item is-typing">
-          <div class="avatar">JP</div>
-          <div class="chat-item__main">
-            <div class="row">
-              <span class="name">Jason Porter</span>
-              <span class="time">11:08 am</span>
-            </div>
-            <div class="row">
-              <span class="snippet">Typing…</span>
-            </div>
-          </div>
-        </li>
-      </ul>
+      <header class="sidebar__header"><h1>Chat</h1></header>
+      <div class="sidebar__section">CHANNELS</div>
+      <ul class="chat-list" id="channel-list"></ul>
+      <div class="sidebar__section">ONLINE USERS</div>
+      <ul class="chat-list" id="online-users-list"></ul>
     </aside>
 
     <main class="main" aria-label="Conversation">
       <header class="chat-header">
         <div class="chat-peer">
-          <div class="avatar big">JP</div>
+          <div class="avatar big" id="chat-avatar">GC</div>
           <div class="peer-meta">
-            <div class="peer-name">Jason Porter</div>
-            <div class="peer-status">Online</div>
+            <div class="peer-name" id="chat-name">Global Chat</div>
+            <div class="peer-status" id="chat-status">Public Channel</div>
           </div>
         </div>
+        <button id="logout-button" class="btn">Logout</button>
       </header>
-
-      <section class="messages" role="log" aria-live="polite">
-        <div class="divider"><span>Today</span></div>
-
-        <article class="bubble-row">
-          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=JP" alt="Jason Porter" />
-          <div class="bubble bubble-in">
-            <div class="bubble-text">
-              Hey! I pushed a draft of the landing page. Can you review the chat layout?
-            </div>
-            <div class="bubble-meta">11:06 am</div>
-          </div>
-        </article>
-
-        <article class="bubble-row me">
-          <div class="bubble bubble-out">
-            <div class="bubble-text">
-              Looks great.
-            </div>
-            <div class="bubble-meta">11:07 am • Seen</div>
-          </div>
-          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=RB" alt="You" />
-        </article>
-      </section>
-
+      <section class="messages" id="messages-container" role="log" aria-live="polite"></section>
       <footer class="composer" aria-label="Message composer">
-        <input class="input" type="text" placeholder="Write a message..." aria-label="Write a message" />
-        <button class="btn btn-send" title="Send">Send</button>
+        <button class="btn btn-icon" id="file-upload-button" title="Attach file">+</button>
+        <input class="input" id="message-input" type="text" placeholder="Write a message..." aria-label="Write a message" />
+        <button class="btn btn-send" id="send-button" title="Send">Send</button>
       </footer>
     </main>
   </div>
 
-  <script>
-    // --- DOM Element Selection ---
-    const composerInput = document.querySelector('.composer .input');
-    const sendButton = document.querySelector('.composer .btn-send');
-    const messagesContainer = document.querySelector('.messages');
-
-    // --- Function to add a new message bubble ---
-    function addMessage() {
-      const messageText = composerInput.value.trim();
-
-      // Do nothing if the input is empty
-      if (messageText === '') {
-        return;
-      }
-
-      // Get current time for the bubble metadata
-      const now = new Date();
-      const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-      // Create the HTML for the new outgoing message bubble
-      const bubbleHtml = `
-        <article class="bubble-row me">
-          <div class="bubble bubble-out">
-            <div class="bubble-text">${messageText}</div>
-            <div class="bubble-meta">${timeString}</div>
-          </div>
-          <img class="bubble-avatar" src="https://api.dicebear.com/7.x/initials/svg?seed=RB" alt="You" />
-        </article>
-      `;
-
-      // Add the new bubble to the messages container
-      messagesContainer.insertAdjacentHTML('beforeend', bubbleHtml);
-
-      // Clear the input field and focus it for the next message
-      composerInput.value = '';
-      composerInput.focus();
-
-      // Automatically scroll to the bottom to see the new message
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-
-    // --- Event Listeners ---
+<script>
+    // --- DOM & User Info ---
+    const messagesContainer = document.getElementById('messages-container');
+    const channelList = document.getElementById('channel-list');
+    const onlineUsersList = document.getElementById('online-users-list');
+    const chatAvatar = document.getElementById('chat-avatar');
+    const chatName = document.getElementById('chat-name');
+    const chatStatus = document.getElementById('chat-status');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const logoutButton = document.getElementById('logout-button');
+    const fileUploadButton = document.getElementById('file-upload-button');
     
-    // 1. Send message when the "Send" button is clicked
-    sendButton.addEventListener('click', addMessage);
+    const LOGGED_IN_USER_ID = localStorage.getItem('user_id');
+    const DISPLAY_NAME = localStorage.getItem('display_name') || LOGGED_IN_USER_ID;
 
-    // 2. Send message when the "Enter" key is pressed in the input field
-    composerInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault(); // Prevents new line in some browsers
-        addMessage();
-      }
-    });
-  </script>
+    if (!LOGGED_IN_USER_ID) { window.location.href = 'login.html'; }
+
+    // --- App State & Rendering ---
+    let activeChat = 'public';
+    let onlineUsers = {};
+    let messageHistories = { 'public': [] };
+    function addSystemMessage(text) { messagesContainer.innerHTML += `<div class="divider"><span>${text}</span></div>`; messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    function addOutgoingMessage(text) { const myInitials = DISPLAY_NAME.substring(0, 2).toUpperCase(); messagesContainer.innerHTML += `<article class="bubble-row me"><div class="bubble bubble-out"><div class="bubble-text">${text}</div></div><div class="avatar">${myInitials}</div></article>`; messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    function addIncomingMessage(sender, text) { const senderInitial = sender.substring(0, 2).toUpperCase(); const senderNameHtml = activeChat === 'public' ? `<div class="sender-name">${sender}</div>` : ''; messagesContainer.innerHTML += `<article class="bubble-row"><div class="avatar">${senderInitial}</div><div class="bubble bubble-in">${senderNameHtml}<div class="bubble-text">${text}</div></div></article>`; messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    function renderMessages() { messagesContainer.innerHTML = ''; const history = messageHistories[activeChat] || []; history.forEach(msg => { if (msg.type === 'system') { addSystemMessage(msg.text); } else if (msg.from === LOGGED_IN_USER_ID) { addOutgoingMessage(msg.payload.ciphertext); } else { const senderName = onlineUsers[msg.from]?.displayName || msg.from; addIncomingMessage(senderName, msg.payload.ciphertext); } }); }
+    function renderSidebar() { channelList.innerHTML = `<li class="chat-item ${activeChat === 'public' ? 'is-active' : ''}" data-userid="public"><div class="avatar">GC</div><div class="chat-item__main"><div class="row"><span class="name">Global Chat</span></div><div class="snippet">Public channel for everyone</div></div></li>`; onlineUsersList.innerHTML = ''; Object.entries(onlineUsers).forEach(([userId, userData]) => { if (userId === LOGGED_IN_USER_ID) return; const unreadBadge = userData.unread > 0 ? `<div class="unread-badge">${userData.unread}</div>` : ''; onlineUsersList.innerHTML += `<li class="chat-item ${activeChat === userId ? 'is-active' : ''}" data-userid="${userId}"><div class="avatar">${userData.displayName.substring(0, 2).toUpperCase()}</div><div class="chat-item__main"><div class="row"><span class="name">${userData.displayName}</span>${unreadBadge}</div><div class="snippet">Online</div></div></li>`; }); }
+    function renderChatView() { if (activeChat === 'public') { chatAvatar.textContent = 'GC'; chatName.textContent = 'Global Chat'; chatStatus.textContent = 'Public Channel'; } else { const userData = onlineUsers[activeChat]; if (userData) { chatAvatar.textContent = userData.displayName.substring(0, 2).toUpperCase(); chatName.textContent = userData.displayName; chatStatus.textContent = 'Online'; } } renderMessages(); }
+
+    // --- WebSocket & DOM Event Handlers ---
+    const ws = new WebSocket("ws://localhost:8765");
+    
+    ws.onopen = () => {
+        addSystemMessage("Connected to server.");
+        const helloMessage = {
+            "type": "USER_HELLO",
+            "from": LOGGED_IN_USER_ID,
+            "to": "server-1",
+            "ts": Date.now(),
+            "payload": { "pubkey": "placeholder", "plain_password": "reconnect_placeholder" }
+        };
+        ws.send(JSON.stringify(helloMessage));
+    };
+
+    ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        // The rest of your onmessage logic is correct and handles all broadcast types
+        if (message.type === 'ACK' && message.payload.msg_ref === 'USER_HELLO') {
+            console.log("Session established/re-established successfully.");
+            return; // ACK is just a confirmation, wait for USER_LIST_UPDATE
+        }
+        switch (message.type) {
+            case 'USER_LIST_UPDATE': onlineUsers = message.payload.users || {}; renderSidebar(); break;
+            case 'USER_JOINED':
+                onlineUsers[message.payload.user_id] = { displayName: message.payload.display_name, unread: 0 };
+                renderSidebar();
+                if (!messageHistories['public']) messageHistories['public'] = [];
+                messageHistories['public'].push({ type: 'system', text: `${message.payload.display_name} has joined.`});
+                if (activeChat === 'public') renderMessages();
+                break;
+            case 'USER_LEFT':
+                const leftUserName = onlineUsers[message.payload.user_id]?.displayName || message.payload.user_id;
+                delete onlineUsers[message.payload.user_id];
+                renderSidebar();
+                if (!messageHistories['public']) messageHistories['public'] = [];
+                messageHistories['public'].push({ type: 'system', text: `${leftUserName} has left.`});
+                if (activeChat === 'public') renderMessages();
+                break;
+            case 'MSG_PUBLIC_CHANNEL':
+            case 'MSG_DIRECT':
+                const isDirect = message.type === 'MSG_DIRECT';
+                const senderId = message.from;
+                const chatId = isDirect ? senderId : 'public';
+                if (senderId !== LOGGED_IN_USER_ID) {
+                    if (!messageHistories[chatId]) messageHistories[chatId] = [];
+                    messageHistories[chatId].push(message);
+                    if (activeChat === chatId) {
+                        const senderName = onlineUsers[senderId]?.displayName || senderId;
+                        addIncomingMessage(senderName, message.payload.ciphertext);
+                    } else if (isDirect && onlineUsers[senderId]) {
+                        onlineUsers[senderId].unread = (onlineUsers[senderId].unread || 0) + 1;
+                        renderSidebar();
+                    }
+                }
+                break;
+        }
+    };
+    ws.onclose = () => { addSystemMessage("Disconnected."); };
+    ws.onerror = () => { addSystemMessage("Connection error."); };
+    function sendMessage() {
+        const messageText = messageInput.value.trim();
+        if (messageText === '' || ws.readyState !== WebSocket.OPEN) return;
+        const messageType = activeChat === 'public' ? 'MSG_PUBLIC_CHANNEL' : 'MSG_DIRECT';
+        const messageObject = { "type": messageType, "from": LOGGED_IN_USER_ID, "to": activeChat, "ts": Date.now(), "payload": { "ciphertext": messageText, "sender_pub": "p", "content_sig": "p" }, "sig": "" };
+        ws.send(JSON.stringify(messageObject));
+        if (!messageHistories[activeChat]) messageHistories[activeChat] = [];
+        messageHistories[activeChat].push(messageObject);
+        addOutgoingMessage(messageText);
+        messageInput.value = '';
+        messageInput.focus();
+    }
+    function handleSidebarClick(event) {
+        const target = event.target.closest('.chat-item');
+        if (!target || !target.dataset.userid) return;
+        const newActiveChat = target.dataset.userid;
+        if (newActiveChat === activeChat) return;
+        activeChat = newActiveChat;
+        if (onlineUsers[activeChat]) { onlineUsers[activeChat].unread = 0; }
+        renderChatView();
+        renderSidebar();
+    }
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+    logoutButton.addEventListener('click', () => { localStorage.clear(); if (ws.readyState === WebSocket.OPEN) ws.close(); window.location.href = 'login.html'; });
+    channelList.addEventListener('click', handleSidebarClick);
+    onlineUsersList.addEventListener('click', handleSidebarClick);
+    const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.style.display = 'none'; document.body.appendChild(fileInput);
+    fileUploadButton.addEventListener('click', () => { fileInput.click(); });
+    fileInput.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) { return; } console.log('Selected file:', file.name); addSystemMessage(`Preparing to send file: ${file.name}`); event.target.value = null; });
+    
+    // Initial Render
+    renderSidebar();
+    renderChatView();
+</script>
 </body>
 </html>

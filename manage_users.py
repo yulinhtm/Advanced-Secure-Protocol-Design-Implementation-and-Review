@@ -1,75 +1,76 @@
-# manage_users.py
 import sqlite3
-import getpass
-from crypto_utils import *
+import base64
+import json
+import uuid
+import os
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization, hashes
 
-DB_PATH = "user.db"
+DB_FILE = "user.db"
+STORAGE_DIR = "ClientStorage"
 
-def add_user_to_db(user_id, pubkey_str, privkey_blob, pake_hash, display_name):
-    """Adds a new user record to the database."""
-    meta = {"display_name": display_name}
-    conn = sqlite3.connect(DB_PATH)
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
-    try:
-        cur.execute("""
-            INSERT INTO users (user_id, pubkey, privkey_store, pake_password, meta, version)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (user_id, pubkey_str, privkey_blob, pake_hash, json.dumps(meta), 1))
-        conn.commit()
-        print(f"Successfully added user '{display_name}' with ID: {user_id}")
-    except sqlite3.IntegrityError:
-        print(f"Error: User with display name '{display_name}' or similar User ID already exists.")
-    finally:
-        conn.close()
-
-def main():
-    print("--- Create New SOCP User ---")
-    username = input("Enter a new username: ")
-    
-    # Generate User ID
-    user_id = generate_user_id(username)
-
-    # Get a strong password
-    while True:
-        password = getpass.getpass("Enter a strong password (will not be shown): ")
-        if is_strong_password(password):
-            break
-        print("Weak password! Must be 12+ chars with uppercase, lowercase, number, and symbol.")
-
-    # Generate RSA Keys
-    private_key, public_key = generate_rsa_keypair()
-    print("Generated RSA-4096 key pair.")
-
-    # Serialize keys for storage
-    pubkey_str = base64.urlsafe_b64encode(
-        public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            pubkey TEXT NOT NULL,
+            privkey_store TEXT NOT NULL,
+            pake_password TEXT,
+            meta TEXT,
+            version INTEGER
         )
-    ).decode('utf-8')
-    
-    priv_blob = serialize_privatekey(private_key, password) # Encrypts private key with password
+    """)
+    conn.commit()
+    return conn
 
-    # Note: pake_password is a placeholder in this context as we are not implementing PAKE.
-    # We will store a simple hash as required by the DB schema.
-    pake_placeholder_hash = hashlib.sha256(password.encode()).hexdigest()
+def generate_user_id(username: str) -> str:
+    # 改为 UUIDv4（随机）
+    return str(uuid.uuid4())
 
-    # Save user to DB
-    add_user_to_db(user_id, pubkey_str, priv_blob, pake_placeholder_hash, username)
+def generate_key_pair():
+    priv = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    return priv, priv.public_key()
 
-    # Save keys locally for the client to use
-    client_storage_dir = "ClientStorage"
-    if not os.path.exists(client_storage_dir):
-        os.makedirs(client_storage_dir)
-        
-    private_key_path = os.path.join(client_storage_dir, f"{username}_private_key.pem")
-    public_key_path = os.path.join(client_storage_dir, f"{username}_public_key.pem")
+def store_user(conn, user_id, privkey, pubkey, pake_password, meta):
+    # 私钥存储（PEM base64）
+    priv_pem = privkey.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    priv_b64 = base64.urlsafe_b64encode(priv_pem).decode("utf-8").rstrip("=")
 
-    # We save the private key encrypted with the user's password
-    save_rsa_keys_to_files(private_key, public_key, private_key_path, public_key_path, password)
-    print(f"Private and public keys saved to {client_storage_dir}/")
-    print("\nUser creation process complete.")
+    # 公钥 DER → base64url
+    pub_der = pubkey.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    pub_b64 = base64.urlsafe_b64encode(pub_der).decode("utf-8").rstrip("=")
 
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO users (user_id, pubkey, privkey_store, pake_password, meta, version) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, pub_b64, priv_b64, pake_password, json.dumps(meta), 1)
+    )
+    conn.commit()
+
+    # 本地保存
+    os.makedirs(STORAGE_DIR, exist_ok=True)
+    with open(os.path.join(STORAGE_DIR, f"{user_id}.priv"), "w") as f:
+        f.write(priv_b64)
+    with open(os.path.join(STORAGE_DIR, f"{user_id}.pub"), "w") as f:
+        f.write(pub_b64)
 
 if __name__ == "__main__":
-    main()
+    conn = init_db()
+    username = input("Enter username: ")
+    password = input("Enter password: ")
+
+    user_id = generate_user_id(username)
+    priv, pub = generate_key_pair()
+    meta = {"username": username}
+
+    store_user(conn, user_id, priv, pub, password, meta)
+    print(f"[OK] User {username} ({user_id}) created.")
