@@ -16,7 +16,6 @@ SERVER_PORT = "5001"
 
 # Keep track of registered servers
 servers = {}
-clients = {}
 
 def generate_server_id():
     return str(uuid.uuid4())
@@ -110,6 +109,7 @@ async def handle_connection(ws):
             }
 
             print("Sent Ack")
+            print(servers)
             await ws.send(json.dumps(welcome_msg))
 
 # Start introducer server
