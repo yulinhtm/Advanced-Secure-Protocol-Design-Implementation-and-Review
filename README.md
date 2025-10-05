@@ -8,6 +8,11 @@ Yuxuan Wu a1898143
 
 ShunChit Yu a1880719
 
+Youqing Fu a1981355
+
+Mo Yang a1932039
+
+
 Network protocol: Websocket  
 Encrytion: RSA  
 public channel  
@@ -21,5 +26,6 @@ SOCP v1.3.pdf       -- about everything in socp protocol
 image.webp          -- show libaray that can be used to appy websock for different language(i choose websockts(python))  
 
 Other file can be ignored  
+
 
 
