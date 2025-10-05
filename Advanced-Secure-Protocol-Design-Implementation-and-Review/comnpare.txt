@@ -1,0 +1,23 @@
+User Hello
+ { JSON
+ "type":"USER_HELLO",
+ "from":"user_id",  // User's ID
+ "to":"server_id",  // Local Server ID
+ "ts":1700000003000,
+ "payload":{
+ "client":"cli-v1",
+ "pubkey":"<b64url RSA-4096 pub>",  //Signature verification
+ "enc_pubkey":"<b64url RSA-4096 pub>" // if using separate keys; else duplicate pubkey(Encryption)
+ },
+ "sig":""  // optional on first frame
+}
+
+users(
+  user_id TEXT PRIMARY KEY, -- UUID, use UUID type if supported (e.g., in PostgreSQL)
+  pubkey TEXT NOT NULL, -- RSA-4096 (base64url)(public key)
+  privkey_store TEXT NOT NULL, -- Encrypted private key blob
+  pake_password TEXT NOT NULL, -- PAKE verifier / salted hash
+  meta TEXT, -- Optional decorative fields, use JSONB type if supported
+  version INT NOT NULL -- bumps on deco/security changes
+ )
+

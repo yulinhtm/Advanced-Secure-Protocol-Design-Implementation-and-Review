@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login / Register</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .btn { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-tabs">
+            <button id="tab-login" class="auth-tab active">Login</button>
+            <button id="tab-register" class="auth-tab">Register</button>
+        </div>
+
+        <form id="login-form">
+            <h2>Welcome Back!</h2>
+            <div class="form-group">
+                <label for="login-username">Username</label>
+                <input type="text" id="login-username" class="input" placeholder="Enter your Username" required>
+            </div>
+            <div class="form-group">
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" class="input" required>
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Login</button>
+        </form>
+
+        <form id="register-form" class="hidden">
+            <h2>Create Account</h2>
+            <div class="form-group">
+                <label for="register-username">Username</label>
+                <input type="text" id="register-username" class="input" required>
+            </div>
+            <div class="form-group">
+                <label for="register-password">Password</label>
+                <input type="password" id="register-password" class="input" required>
+            </div>
+             <div class="form-group">
+                <label for="register-confirm-password">Confirm Password</label>
+                <input type="password" id="register-confirm-password" class="input" required>
+            </div>
+            <button type="submit" class="btn btn-primary full-width">Create Account</button>
+        </form>
+        <p id="msg" style="text-align: center; margin-top: 15px; min-height: 20px;"></p>
+    </div>
+</div>
+
+<script>
+    // --- DOM Elements ---
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const msgEl = document.getElementById('msg');
+
+    // MODIFIED: Removed all modal-related DOM element selections
+
+    // --- Tab Switching ---
+    tabLogin.addEventListener('click', () => {
+        loginForm.classList.remove('hidden');
+        registerForm.classList.add('hidden');
+        tabLogin.classList.add('active');
+        tabRegister.classList.remove('active');
+        if (msgEl) msgEl.textContent = '';
+    });
+    tabRegister.addEventListener('click', () => {
+        registerForm.classList.remove('hidden');
+        loginForm.classList.add('hidden');
+        tabRegister.classList.add('active');
+        tabLogin.classList.remove('active');
+        if (msgEl) msgEl.textContent = '';
+    });
+
+    // MODIFIED: Removed modal button event listeners
+
+    // --- Helper Functions ---
+    function showMsg(text, isError = false) {
+        if (!msgEl) return;
+        msgEl.textContent = text;
+        msgEl.style.color = isError ? '#c00' : '#0a0';
+    }
+
+    // This function must be the same as the one on your Python server (in crypto_utils)
+    async function generateUserId(username) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(username);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // This format should match your server's cu.generate_user_id function
+        return `user-${hashHex.substring(0, 16)}`;
+    }
+
+    // --- WebSocket Communication ---
+    function connectAndSend(message, successCallback) {
+        showMsg("Connecting to server...");
+        const ws = new WebSocket("ws://localhost:8765");
+        ws.onopen = () => { ws.send(JSON.stringify(message)); showMsg("Waiting for reply..."); };
+        ws.onmessage = (event) => {
+            const response = JSON.parse(event.data);
+            if (response.type === "ACK") { successCallback(response); }
+            else if (response.type === "ERROR") {
+                const errorDetails = response.payload ? response.payload.detail : "Unknown server error";
+                showMsg(`Error: ${errorDetails}`, true);
+            } else { showMsg(`Received unexpected message type: ${response.type}`, true); }
+            ws.close();
+        };
+        ws.onerror = () => { showMsg("Connection to server failed. Is the server running?", true); };
+    }
+
+    // --- MODIFIED: Registration Form ---
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const displayName = document.getElementById('register-username').value.trim();
+        const password = document.getElementById('register-password').value;
+        if (password !== document.getElementById('register-confirm-password').value) {
+            showMsg("Passwords do not match!", true);
+            return;
+        }
+
+        const userId = await generateUserId(displayName);
+        const payload = { "display_name": displayName, "pubkey": "placeholder", "privkey_store": "placeholder", "plain_password": password, "salt": "placeholder" };
+        const registerMessage = { "type": "USER_REGISTER", "from": userId, "to": "server-1", "ts": Date.now(), "payload": payload, "sig": "" };
+
+        connectAndSend(registerMessage, (response) => {
+            // MODIFIED: Show simple success message and redirect directly to chat
+            showMsg("Create Successful", false);
+            localStorage.setItem('user_id', userId);
+            localStorage.setItem('display_name', displayName);
+            setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+        });
+    });
+
+    // --- MODIFIED: Login Form ---
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const displayName = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+        
+        const userId = await generateUserId(displayName);
+        const payload = { "pubkey": "placeholder", "plain_password": password };
+        const loginMessage = { "type": "USER_HELLO", "from": userId, "to": "server-1", "ts": Date.now(), "payload": payload, "sig": "" };
+
+        connectAndSend(loginMessage, (response) => {
+            // MODIFIED: Show new success message
+            showMsg("Welcome to Join Us", false);
+            localStorage.setItem('user_id', userId);
+            localStorage.setItem('display_name', displayName);
+            setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+        });
+    });
+</script>
+
+</body>
+</html>
