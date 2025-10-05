@@ -18,7 +18,7 @@ server_addrs: Dict[str, Dict[str, str]] = {}
 server_pubkeys: Dict[str, str] = {}
 local_users = {}        # user_id -> WebSocket link
 user_locations = {}     # user_id -> "local" | server_id
-server_users = {}       #uesr_id -> meta + pubkey
+server_users = {}       # uesr_id -> meta + pubkey
 
 #config
 SERVER_PORT = "8765"

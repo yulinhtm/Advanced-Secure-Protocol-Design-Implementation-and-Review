@@ -190,6 +190,27 @@ def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: 
     
     return message
 
+def create_ack_list_message(private_key: rsa.RSAPrivateKey, msg_ref: str, content, server_id: str, to_user: str) -> dict:
+    # Build payload
+
+    
+    # Canonicalize payload
+    canonical_bytes = json.dumps(content, sort_keys=True, separators=(',', ':')).encode("utf-8")
+    
+    # Sign the payload
+    signature_b64url = sign_payload(private_key, canonical_bytes)
+    
+    # Construct message
+    message = {
+        "type": "ACK",
+        "from": server_id,
+        "to": to_user,
+        "payload": content,
+        "sig": signature_b64url
+    }
+    
+    return message
+
 def is_strong_password(password: str) -> bool:
     if len(password) < 12:
         return False
