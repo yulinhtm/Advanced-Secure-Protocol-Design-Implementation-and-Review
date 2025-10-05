@@ -17,9 +17,6 @@ import Heartbeats_Timeouts as hb
 
 
 
-
-
-
 servers = {}          # server_id -> WebSocket connection (Link wrapper)
 # server_id (str or int) -> (host, port)
 server_addrs: Dict[str, Dict[str, str]] = {}
@@ -473,8 +470,8 @@ async def handle_connection(ws):
 # --- NEW: Heartbeat and Monitoring Functions in Heartbeats_Timeouts.py---
 
 hb.servers = servers
-hb.server_addrs = server_addrs
 hb.last_seen_times = last_seen_times
+hb.server_addrs = server_addrs
 hb.SERVER_ID = SERVER_ID
 
 
