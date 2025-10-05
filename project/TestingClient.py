@@ -17,8 +17,8 @@ MAX_RSA_PLAINTEXT = 446  # RSA-4096 + OAEP(SHA-256) 的明文上限
 # ===== 工具：加载服务器公钥（用于注册/登录加密；没有也能跑） =====
 def load_server_pubkey():
     try:
-        with open("ClientStorage/server_public_key.pem", "rb") as f:
-            return serialization.load_pem_public_key(f.read())
+        with open("ClientStorage/server_public_key.der", "rb") as f:
+            return serialization.load_der_public_key(f.read())
     except Exception:
         return None
 
@@ -38,30 +38,30 @@ def save_keypair_for_user(username: str, priv: rsa.RSAPrivateKey, pub: rsa.RSAPu
     # 私钥按密码加密
     enc = serialization.BestAvailableEncryption(password.encode("utf-8")) if password else serialization.NoEncryption()
     priv_pem = priv.private_bytes(
-        encoding=serialization.Encoding.PEM,
+        encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=enc
     )
-    with open(f"ClientStorage/{safe}_private_key.pem", "wb") as f:
+    with open(f"ClientStorage/{safe}_private_key.der", "wb") as f:
         f.write(priv_pem)
 
     pub_pem = pub.public_bytes(
-        encoding=serialization.Encoding.PEM,
+        encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
-    with open(f"ClientStorage/{safe}_public_key.pem", "wb") as f:
+    with open(f"ClientStorage/{safe}_public_key.der", "wb") as f:
         f.write(pub_pem)
 
 # ===== 工具：尝试从本地载入密钥对，不存在则返回 (None, None) =====
 def try_load_keypair(username: str, password: str):
     safe = hashlib.sha256(username.encode()).hexdigest()
     try:
-        with open(f"ClientStorage/{safe}_private_key.pem", "rb") as f:
+        with open(f"ClientStorage/{safe}_private_key.der", "rb") as f:
             priv_pem = f.read()
-        with open(f"ClientStorage/{safe}_public_key.pem", "rb") as f:
+        with open(f"ClientStorage/{safe}_public_key.der", "rb") as f:
             pub_pem = f.read()
-        priv = serialization.load_pem_private_key(priv_pem, password=password.encode("utf-8") if password else None)
-        pub = serialization.load_pem_public_key(pub_pem)
+        priv = serialization.load_der_private_key(priv_pem, password=password.encode("utf-8") if password else None)
+        pub = serialization.load_der_public_key(pub_pem)
         return priv, pub
     except Exception:
         return None, None
@@ -380,7 +380,7 @@ async def run_shell(ws, username: str, private_key):
 async def main():
     server_pubkey = load_server_pubkey()
     if server_pubkey is None:
-        print("[WARN] ClientStorage/server_public_key.pem not found. Registration/Login payload will be sent in plaintext.")
+        print("[WARN] ClientStorage/server_public_key.der not found. Registration/Login payload will be sent in plaintext.")
 
     while True:
         print("Menu:\nLogin: 2\nRegister: 1")

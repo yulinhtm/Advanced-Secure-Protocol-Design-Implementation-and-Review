@@ -106,8 +106,9 @@ class ServerHandlers:
         sender = envelope.get("from")
 
         # 精简点：复制 payload，并补充 sender 即可（sender_pub 若在原 payload，就已包含）
+        display = self.resolve_username(sender) if self.resolve_username else sender
         server_payload = dict(payload)
-        server_payload.setdefault("sender", sender)
+        server_payload["sender"] = display
 
         # dispatch to all users/servers
         for uid, loc in self.user_locations.items():
@@ -143,8 +144,9 @@ class ServerHandlers:
             return
 
         # Ensure forwarded payload contains sender; preserve manifest_sig/chunk_sig if present
+        display = self.resolve_username(sender) if self.resolve_username else sender
         fwd_payload = dict(payload)
-        fwd_payload.setdefault("sender", sender)
+        fwd_payload["sender"] = display
 
         if self.user_locations[recipient] == "local":
             fd = {

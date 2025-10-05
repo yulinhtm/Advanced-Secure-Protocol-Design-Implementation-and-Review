@@ -11,7 +11,6 @@ from typing import Dict, Any, Tuple, Optional
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-
 # ========== RSA 基础 ==========
 
 def generate_rsa_keypair(bits: int = 4096) -> Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
@@ -114,12 +113,12 @@ def save_rsa_keys_to_files(priv: rsa.RSAPrivateKey, pub: rsa.RSAPublicKey,
                            priv_path: str, pub_path: str, password: Optional[str] = None):
     enc = serialization.BestAvailableEncryption(password.encode("utf-8")) if password else serialization.NoEncryption()
     priv_pem = priv.private_bytes(
-        encoding=serialization.Encoding.PEM,
+        encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=enc
     )
     pub_pem = pub.public_bytes(
-        encoding=serialization.Encoding.PEM,
+        encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
     with open(priv_path, "wb") as f:
@@ -131,15 +130,16 @@ def save_rsa_keys_to_files(priv: rsa.RSAPrivateKey, pub: rsa.RSAPublicKey,
 def load_rsa_keys_from_files(priv_path: str, pub_path: str, password: Optional[str] = None):
     try:
         with open(priv_path, "rb") as f:
-            priv = serialization.load_pem_private_key(
+            priv = serialization.load_der_private_key(
                 f.read(),
                 password=password.encode("utf-8") if password else None
             )
         with open(pub_path, "rb") as f:
-            pub = serialization.load_pem_public_key(f.read())
+            pub = serialization.load_der_public_key(f.read())
         return priv, pub
-    except Exception:
+    except Exception as e:
         return None, None
+
 
 
 # ========== 密码哈希 ==========
@@ -260,7 +260,7 @@ def _derive_password(password: str, salt_b64: str) -> bytes:
 
 def encrypt_private_key(priv: rsa.RSAPrivateKey, password: str, salt_b64: str) -> str:
     pem = priv.private_bytes(
-        encoding=serialization.Encoding.PEM,
+        encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.BestAvailableEncryption(_derive_password(password, salt_b64))
     )
