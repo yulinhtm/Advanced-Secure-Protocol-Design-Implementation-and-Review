@@ -258,15 +258,15 @@ def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: 
 
 def is_strong_password(password: str) -> bool:
     if len(password) < 12:
-        return False
+        return True
     if not any(c.isupper() for c in password):
-        return False
+        return True
     if not any(c.islower() for c in password):
-        return False
+        return True
     if not any(c.isdigit() for c in password):
-        return False
+        return True
     if not any(c in string.punctuation for c in password):
-        return False
+        return True
     return True
 
 

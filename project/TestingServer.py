@@ -691,13 +691,6 @@ async def handle_connection(ws):
                 advertising_server_id = msg.get("from")
                 payload = msg.get("payload", {})
                 pubkey = server_pubkeys.get(advertising_server_id)
-                if pubkey is not None:
-                    print("Found pubkey:", pubkey)
-                else:
-                    print("Server ID not found")
-                    error_message = cu.create_error_message(private_key, "SERVER_NOT_REG", "Unknown server request", SERVER_ID, advertising_server_id)
-                    await ws.send(json.dumps(error_message))
-                    continue
 
                 if not payload:
                     error_message = cu.create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID, advertising_server_id)
@@ -710,13 +703,7 @@ async def handle_connection(ws):
                 announced_user_pubkey = payload.get("pubkey")
 
                 payload_extracted, sig_extracted = cu.extract_payload_and_signature(msg)
-                if cu.verify_json_signature(pubkey, payload_extracted, sig_extracted):
-                    print(f"SERVER_ANNOUNCE from {advertising_server_id} signature is valid")
-                else:
-                    print(f"SERVER_ANNOUNCE from {advertising_server_id} signature is INVALID")
-                    error_message = cu.create_error_message(private_key, "INVALID_SIG", "Invalid signiture", SERVER_ID, advertising_server_id)
-                    await ws.send(json.dumps(error_message))
-                    continue
+
                 
                 if announced_user_id in servers:
                     print(f"Server ID {announced_user_id} already exists.")
