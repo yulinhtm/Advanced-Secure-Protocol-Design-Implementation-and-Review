@@ -223,6 +223,25 @@ class ClientCommands:
         await self.ws.send(json.dumps(env))
         print(f"[/all] 已广播到 {group_id}（明文+签名）")
 
+    async def do_quit(self) -> None:
+
+        try:
+            env = {
+                "type": "USER_LOGOUT",
+                "from": self.user_id,
+                "to":   "*",
+                "ts":   cu.int_ts_ms(),
+                "payload": {}
+            }
+            await self.ws.send(json.dumps(env))
+        except Exception:
+            pass
+        try:
+            await asyncio.sleep(0.1)   # 可选：给服务端处理时间
+        except Exception:
+            pass
+
+
     # ---------------- low-level send ----------------
     async def send_envelope(self, env: dict, attach_transport_sig: bool = False):
         """

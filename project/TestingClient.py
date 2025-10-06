@@ -447,6 +447,7 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
         while True:
             line = await loop.run_in_executor(None, input, "> ")
             if line.strip() == "/quit":
+                await commands.do_quit()
                 break
             elif line.strip() == "/list":
                 await commands.do_list(user_list)

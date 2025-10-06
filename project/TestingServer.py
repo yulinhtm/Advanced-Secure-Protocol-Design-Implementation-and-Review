@@ -510,23 +510,6 @@ async def user_remove(the_user_id):
 
         await ws.send(json.dumps(advertise_msg))
         
-        response_raw = await ws.recv()
-        try:
-            response = json.loads(response_raw)     # convert to dict
-        except json.JSONDecodeError:
-            print("Invalid JSON received:", response_raw)
-        
-        payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
-
-        if cu.verify_json_signature(server_pubkeys[to_server_id], payload_extracted, sig_extracted):
-            print("Signature is valid\n")
-            if response.get("type") == "ACK":
-                print("Valid response from introducer:", response.get("type"))
-                
-            elif response.get("type") == "ERROR":
-                print("Introducer returned an error:", response.get("message"))
-        else:
-            print("Signature is INVALID")
 
 # ===================== 连接处理 =====================
 async def handle_connection(ws):
@@ -827,6 +810,27 @@ async def handle_connection(ws):
                     await ws_send(local_users[target_uid], json.dumps(deliver_env))
                 except Exception:
                     traceback.print_exc()
+            
+            elif mtype == "USER_LOGOUT":
+                uid = msg.get("from")
+                if not uid or uid not in local_users or local_users[uid] is not ws:
+                    err = create_error(uid or "*", "USER_NOT_FOUND", "not logged in or ws mismatch")
+                    await ws.send(json.dumps(err))
+                    continue
+
+                local_users.pop(uid, None)
+                user_locations.pop(uid, None)
+
+                await broadcast_user_offline_username(uid)
+
+                try:
+                    await user_remove(uid)
+                except Exception:
+                    traceback.print_exc()
+
+                print(f"[LOGOUT] user {uid} logged out")
+                continue
+
 
 
             # ---------------- 命令分发 ----------------
