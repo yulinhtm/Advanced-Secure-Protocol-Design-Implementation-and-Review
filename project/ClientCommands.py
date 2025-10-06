@@ -61,15 +61,6 @@ class ClientCommands:
     # ---------------- /list ----------------
     async def do_list(self, user_list):
         print(user_list)
-        env = {
-            "type": "LIST_REQUEST",
-            "from": self.user_id,
-            "to": "*",
-         "ts": cu.int_ts_ms(),
-            "payload": {}
-        }
-        await self.ws.send(json.dumps(env))
-        print("[CLIENT] /list 已发送")
 
     # ---------------- /tell (end-to-end) ----------------
     async def do_tell(self, recipient_id: str, plaintext: str, recipient_pub_str=None):

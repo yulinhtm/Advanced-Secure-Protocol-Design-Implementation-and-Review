@@ -549,11 +549,6 @@ async def handle_connection(ws):
                                                           "display_name/pubkey/privkey_store/plain_password/salt required")))
                     continue
 
-                # 校验 user_id 与 username 一致性
-                calc_uid = cu.generate_user_id(display_name)
-                if user_id != calc_uid:
-                    await ws.send(json.dumps(create_error("*", "UID_MISMATCH", "user_id not match username")))
-                    continue
 
                 if user_exists(user_id, display_name):
                     await ws.send(json.dumps(create_error(user_id, "NAME_IN_USE", "username or user_id already exists")))
