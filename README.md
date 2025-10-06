@@ -46,5 +46,14 @@ Order to start the system:
 Introducer -> server -> client
 
 Example command to run the programe:
+python Introducer.py --host 127.0.0.1 --port 5001
 
+python TestingServer.py --host localhost --addr 127.0.0.1 --port 8765 --name server-1
+python TestingServer.py --host localhost --addr 127.0.0.1 --port 8766 --name server-2
+
+python TestingClient.py --url ws://localhost:8765
+python TestingClient.py --url ws://localhost:8766
+
+Reminde:
+Need a leat one introducer and 2 server to form a network. Server can hold mutiple clients which form local network.
 
