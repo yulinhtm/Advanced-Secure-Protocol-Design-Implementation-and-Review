@@ -19,10 +19,32 @@ public channel
 Json file Style: SOCP(read SOCP V1.3.pdf for more details)
 
 file(all system file is inside the project folder):
-1.image.webp -- show libaray that can be used to appy websock for different language(we choose websockts(python))
-2.SOCP v1.3.pdf -- about everything in socp protocol
-3.crypto_utils.py --for function that will be used in client and server
-4.TestingClient.py --being the client Side
-5.TestingServer.py --being the server side(do all the coomincation work)
+The system is vonsist of 3 perts(Introducer, client and server)
 
-Other file can be ignored
+Introducer:
+IntroducerStorage
+Introducer.py
+crypto_utils.py
+
+Client:
+ClientStorage
+TestingClient.py
+ClientCommands.py
+crypto_utils.py
+
+Server:
+ServerStorage
+TestingServer.py
+crypto_utils.py
+server_handlers.py
+user.db
+bootstrap_servers.yam
+
+Makw sure these file is in the same directory when runnning the system.
+
+Order to start the system:
+Introducer -> server -> client
+
+Example command to run the programe:
+
+
