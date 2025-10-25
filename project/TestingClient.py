@@ -14,7 +14,8 @@ import crypto_utils as cu
 from ClientCommands import ClientCommands
 
 SERVER_URL = "ws://localhost:8765"
-MAX_RSA_PLAINTEXT = 446  # RSA-4096 + OAEP(SHA-256) 的明文上限
+MAX_RSA_PLAINTEXT = 446  # Plaintext upper limit for RSA-4096 + OAEP(SHA-256)
+
 user_list = {}
 SERVER_ID = cu.generate_user_id("server-1")
 
@@ -28,7 +29,8 @@ args = parse_args()
 SERVER_URL = args.url
 
 
-# ===== 工具：加载服务器公钥（用于注册/登录加密；没有也能跑） =====
+# ===== Tool: Load server public key (used for registration/login encryption; it can run without it) =====
+
 def load_server_pubkey():
     try:
         with open("ClientStorage/server_public_key.der", "rb") as f:
@@ -36,7 +38,8 @@ def load_server_pubkey():
     except Exception:
         return None
 
-# ===== 工具：强口令提示（用你 cu.is_strong_password） =====
+# ===== Tool: Strong Password Hint (use your cu.is_strong_password) =====
+
 def get_strong_password():
     while True:
         pwd = input("Enter your password: ")
@@ -44,12 +47,14 @@ def get_strong_password():
             return pwd
         print("Weak password! Must be 12+ chars with uppercase, lowercase, number, and symbol.")
 
-# ===== 工具：保存密钥对 =====
+# ===== Tools: Saving Key Pairs =====
+
 def save_keypair_for_user(username: str, priv: rsa.RSAPrivateKey, pub: rsa.RSAPublicKey, password: str):
     os.makedirs("ClientStorage", exist_ok=True)
     safe = hashlib.sha256(username.encode()).hexdigest()
 
-    # 私钥按密码加密
+    # Private key encrypted by password
+
     enc = serialization.BestAvailableEncryption(password.encode("utf-8")) if password else serialization.NoEncryption()
     priv_pem = priv.private_bytes(
         encoding=serialization.Encoding.DER,
@@ -66,7 +71,8 @@ def save_keypair_for_user(username: str, priv: rsa.RSAPrivateKey, pub: rsa.RSAPu
     with open(f"ClientStorage/{safe}_public_key.der", "wb") as f:
         f.write(pub_pem)
 
-# ===== 工具：尝试从本地载入密钥对，不存在则返回 (None, None) =====
+# ===== Tool: Try to load the key pair locally, if it does not exist, return (None, None) =====
+
 def try_load_keypair(username: str, password: str):
     safe = hashlib.sha256(username.encode()).hexdigest()
     try:
@@ -80,13 +86,15 @@ def try_load_keypair(username: str, password: str):
     except Exception:
         return None, None
 
-# ===== 工具：按需加密 payload 字段（能加就加，不能就明文） =====
+# ===== Tool: Encrypt the payload field on demand (add it if you can, just plain text if you can’t) =====
+
 def maybe_encrypt_payload(fields: dict, server_pubkey) -> dict:
     if server_pubkey is None:
         return fields
     return cu.encrypt_payload_fields(fields, server_pubkey, MAX_RSA_PLAINTEXT)
 
-# ====== 注册 ======
+# ====== Register ======
+
 async def register(ws, username, password, server_pubkey):
     global SERVER_ID, user_list 
     user_id = cu.generate_user_id(username)
@@ -116,6 +124,7 @@ async def register(ws, username, password, server_pubkey):
     raw = await asyncio.wait_for(ws.recv(), timeout=10)
     try:
         response = json.loads(raw)     # convert to dict
+
     except json.JSONDecodeError:
         print("Invalid JSON received:", raw)
         return False, None
@@ -126,7 +135,6 @@ async def register(ws, username, password, server_pubkey):
             print("Server responded with ACK")
             SERVER_ID = response.get("from")
             user_list = response.get("payload")
-            print(user_list)
             safe_filename = hashlib.sha256(username.encode()).hexdigest()
             cu.save_rsa_keys_to_files(priv, pub, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
         else:
@@ -140,11 +148,13 @@ async def register(ws, username, password, server_pubkey):
 
 
 
-# ====== 登录 ======
+# ====== Login ======
+
 async def login(ws, username: str, password: str, server_pubkey):
     global SERVER_ID, user_list 
     user_id = cu.generate_user_id(username)
-    # 尝试加载已有密钥；没有就新生成
+    # Try to load an existing key; if not, generate a new one
+
     priv, pub = try_load_keypair(username, password)
     newClient = False
     if not priv or not pub:
@@ -164,10 +174,12 @@ async def login(ws, username: str, password: str, server_pubkey):
     }
     await ws.send(json.dumps(login_msg))
 
-    # 等一次首包（ACK/ERROR）打印后 → 若 ACK，进入命令循环；若 ERROR，返回菜单
+    # Wait for the first packet (ACK/ERROR) to be printed → If ACK, enter the command loop; if ERROR, return to the menu
+
     raw = await asyncio.wait_for(ws.recv(), timeout=10)
     try:
         response = json.loads(raw)     # convert to dict
+
     except json.JSONDecodeError:
         print("Invalid JSON received:", raw)
         return False, None
@@ -178,7 +190,6 @@ async def login(ws, username: str, password: str, server_pubkey):
             print("Server responded with ACK")
             SERVER_ID = response.get("from")
             user_list = response.get("payload")
-            print(user_list)
             if newClient:
                 safe_filename = hashlib.sha256(username.encode()).hexdigest()
                 cu.save_rsa_keys_to_files(priv, pub, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
@@ -191,7 +202,8 @@ async def login(ws, username: str, password: str, server_pubkey):
 
     return True, priv
 
-# ====== 交互循环 ======
+# ====== Interactive loop ======
+
 async def run_shell(ws, username: str, private_key, server_pubkey):
     user_id = cu.generate_user_id(username)
     try:
@@ -201,6 +213,7 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
 
     print("Ready. Commands: /list , /tell <user_id> <message> , /all <message> , /file <user_id> <path> , /quit")
     incoming_files = {}  # file_id -> {"sender_pub","name","size","fh","received","dir"}
+
     os.makedirs("Downloads", exist_ok=True)
     async def listen_server():
         try:
@@ -214,87 +227,101 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                 t = msg.get("type")
                 payload = msg.get("payload", {})
 
-                # /list 响应
+                # /list response
+
                 if t == "LIST_RESPONSE":
                     users = payload.get("users", [])
                     if users:
-                        print(f"[/list] 在线用户（{len(users)}）：")
+                        print(f"[/list] Online user（{len(users)}）：")
                         for u in users:
                             print(" -", u)
                     else:
-                        print("[/list] 当前没有可见的在线用户。")
+                        print("[/list] There are currently no visible online.")
                     continue
 
 
-                # —— 上线广播：兼容 USER_ONLINE / USER_ADVERTISE —— 
+                # —— Online broadcast: compatible with USER_ONLINE /USER_ADVERTISE —— 
+
                 if t in ("USER_ONLINE", "USER_ADVERTISE"):
                     p = payload or {}
 
-                    # 1) 先验证签名：以服务器公钥为准（Introducer/其他服务器的广播同理）
+                    # 1) Verify the signature first: the server public key shall prevail (the same applies to Introducer/other server broadcasts)
+
                     try:
-                        # 你已有 server_pubkey（load_server_pubkey()）
+                        # You already have server_pubkey (load_server_pubkey())
+
                         ok = cu.verify_json_signature(server_pubkey, p, msg.get("sig", ""))
                         if not ok:
-                            print("[notice] USER_ONLINE 验签失败，已丢弃。")
+                            print("[notice] USER_ONLINE Signature verification failed, discarded.")
                             continue
                     except Exception as e:
-                        print("[notice] USER_ONLINE 验签异常：", e)
+                        print("[notice] USER_ONLINE Signature verification error：", e)
                         continue
 
-                    # 2) 解析字段
+                    # 2) Parse fields
+
                     meta = p.get("meta") or {}
                     name = meta.get("display_name") or meta.get("username") or p.get("display_name") or p.get("username")
                     uid  = p.get("user_id")
-                    pk64 = p.get("pubkey")  # base64url(DER) 字符串
+                    pk64 = p.get("pubkey")  # base64url(DER) string
 
-                    # 3) 更新本地目录缓存（全局 user_list： user_id -> {pubkey:str, meta:dict}）
+
+                    # 3) Update the local directory cache (global user_list: user_id -> {pubkey:str, meta:dict})
+
                     if uid and pk64:
                         user_list[uid] = {
-                            "pubkey": pk64,   # 注意：这里先存字符串；真正使用时再 cu.deserialize_publickey()
+                            "pubkey": pk64,   # Note: The string is stored here first; then cu.deserialize_publickey() is used when actually using it.
+
                             "meta":   meta 
                         }
 
-                    # 4) 友好提示
+                    # 4) Friendly reminder
+
                     if name or uid:
                         if name and uid:
-                            print(f"[notice] 用户上线：{name}（{uid}）")
+                            print(f"[notice] User online：{name}（{uid}）")
                         elif name:
-                            print(f"[notice] 用户上线：{name}")
+                            print(f"[notice] User online：{name}")
                         else:
-                            print(f"[notice] 用户上线：{uid}")
+                            print(f"[notice] User online：{uid}")
                     else:
-                        print(f"[notice] 有用户上线（payload 缺少可显示字段）：{p}")
+                        print(f"[notice] A user has logged in.")
                     continue
 
-                # —— 下线广播：兼容 USER_OFFLINE / USER_REMOVE（只需要用户名，没就回退到 user_id） ——
+                # —— Offline broadcast: compatible with USER_OFFLINE /USER_REMOVE (only username is required, if not, it will fall back to user_id) ——
+
                 if t in ("USER_OFFLINE", "USER_REMOVE"):
                     p = payload or {}
                     meta = p.get("meta") or {}
-                    # 兼容字段名：优先 username / display_name
+                    # Compatible field names: priority username /display_name
+
                     name = p.get("username") or meta.get("username") or p.get("display_name") or meta.get("display_name")
                     uid  = p.get("user_id")
 
-                    # 验证服务器签名（无签名或验签失败则忽略这条广播）
+                    # Verify server signature (if there is no signature or signature verification fails, this broadcast will be ignored)
+
                     if not cu.verify_json_signature(server_pubkey, p, msg.get("sig", "")):
                         continue
 
-                    # 从本地 user_list 移除
+                    # Remove from local user_list
+
                     if uid and uid in user_list:
-                        # 若本地记录了名字，用本地的（更稳）
+                        # If the name is recorded locally, use the local one (more stable)
+
                         name = user_list.get(uid, name)
                         user_list.pop(uid, None)
 
-                    # 友好提示
-                    if name:
-                        print(f"[notice] 用户下线：{name}")
-                    elif uid:
-                        print(f"[notice] 用户下线：{uid}")
+                    # Friendly reminder
+
+                    if uid:
+                        print(f"[notice] User offline：{uid}")
                     else:
-                        print(f"[notice] 有用户下线（payload 缺少可显示字段）：{p}")
+                        print(f"[notice] A user has offline.")
                     continue
 
 
-                # 公共频道（/all）：AES-GCM 密文
+                # Public channel (/all): AES-GCM ciphertext
+
                 if t == "MSG_PUBLIC_CHANNEL":
                     p = payload or {}
 
@@ -306,10 +333,10 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                         spub     = cu.deserialize_publickey(p["sender_pub"])
                         dg = hashlib.sha256((text + sig_from + str(sig_ts)).encode("utf-8")).digest()
                         if not cu.verify_signature(spub, dg, p.get("content_sig", "")):
-                            print("[ALL] 验签失败，消息已丢弃。")
+                            print("[ALL] Signature verification failed, message discarded.")
                             continue
                     except Exception as e:
-                        print("[ALL] 验签异常：", e)
+                        print("[ALL] Signature verification erro：", e)
                         continue
 
                     name = p.get("sender") or "someone"     
@@ -317,7 +344,8 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                     continue
 
 
-                # 私聊（/tell）：RSA-OAEP 密文（没有 iv/tag）
+                # Private chat (/tell): RSA-OAEP ciphertext (no iv/tag)
+
                 if t in ("USER_DELIVER", "SERVER_DELIVER") \
                 and "ciphertext" in payload and "iv" not in payload and "tag" not in payload:
 
@@ -325,36 +353,39 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                     sender_pub64 = payload.get("sender_pub")
                     content_sig  = payload.get("content_sig")
 
-                    # 优先用 payload 里随签名带的字段
+                    # Prioritize using the fields that come with the signature in the payload.
+
                     s_from = payload.get("sig_from") or payload.get("sender") or msg.get("from")
                     s_to   = payload.get("user_id") or payload.get("sig_to")   or msg.get("to")
                     s_ts   = payload.get("sig_ts")   or msg.get("ts")
 
                     if not (ct_b64 and sender_pub64 and content_sig and s_from and s_to and s_ts is not None):
-                        print("[DM] 收到的消息字段不完整：", msg);  continue
+                        print("[DM] The received message fields are incomplete.：", msg);  continue
 
                     try:
                         sender_pub = cu.deserialize_publickey(sender_pub64)
                         import hashlib
                         dg = hashlib.sha256((ct_b64 + s_from + s_to + str(s_ts)).encode("utf-8")).digest()
                         if not cu.verify_signature(sender_pub, dg, content_sig):
-                            print("[DM] 验签失败，已丢弃。");  continue
+                            print("[DM] Signature verification failed, message discarded.");  continue
 
                         pt = cu.rsa_oaep_decrypt(private_key, cu.b64url_decode(ct_b64)).decode("utf-8")
                         print(f"[DM] {s_from} → {s_to}: {pt}")
 
                     except Exception as e:
-                        print("[DM] 解密/验签异常：", e)
+                        print("[DM] Decryption/Signature Verification Anomaly：", e)
                     continue
 
 
-                # FILE_START
+                # File start
+
                 if t == "FILE_START":
                     p = payload
                     try:
                         sender_pub = cu.deserialize_publickey(p["sender_pub"])
 
-                        # 验 manifest 签名（只对 manifest 原始字段）
+                        # Verify manifest signature (only for manifest original fields)
+
                         manifest_for_sig = {
                             "file_id": p["file_id"],
                             "name":    p["name"],
@@ -368,7 +399,7 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                             p["manifest_sig"]
                         )
                         if not ok:
-                            print("[FILE] manifest 签名无效，丢弃。");  continue
+                            print("[FILE] manifest Signature invalid, discarded.");  continue
 
                         out_name = f"{p['file_id']}_{p['name']}"
                         out_dir  = "Downloads"
@@ -384,19 +415,21 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                             "received":   0,
                             "dir":        "Downloads",
                         }
-                        print(f"[FILE] 开始接收 {p['name']} -> {out_path}")
+                        print(f"[FILE] Begin receiving {p['name']} -> {out_path}")
                     except Exception as e:
-                        print("[FILE] FILE_START 异常：", e)
+                        print("[FILE] FILE_START error：", e)
                     continue
                 # FILE_CHUNK (RSA)
+
                 if t == "FILE_CHUNK":
                     p = payload
                     fid = p.get("file_id")
                     st  = incoming_files.get(fid)
                     if not st:
-                        print("[FILE] 未知的 file_id，忽略块。");  continue
+                        print("[FILE] Unknown file_id, ignore block.");  continue
                     try:
-                        # 先验块签名：{file_id,index,ciphertext}
+                        # A priori block signature: {file id,index,ciphertext}
+
                         chunk_info = {"file_id": fid, "index": p["index"], "ciphertext": p["ciphertext"]}
                         ok = cu.verify_signature(
                             st["sender_pub"],
@@ -404,40 +437,45 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
                             p["chunk_sig"]
                         )
                         if not ok:
-                            print("[FILE] chunk_sig 无效，丢弃该块。");  continue
+                            print("[FILE] chunk_sig invalid, discard this chunk.");  continue
 
-                        # 解密 & 写入
+                        # Decrypt & Write
+
                         ct  = cu.b64url_decode(p["ciphertext"])
-                        pt  = cu.rsa_oaep_decrypt(private_key, ct)  # private_key 是 run_shell() 传入的
+                        pt  = cu.rsa_oaep_decrypt(private_key, ct)  # private_key is passed in by run_shell()
+
                         st["fh"].write(pt)
                         st["received"] += len(pt)
 
                         if st["size"]:
                             prog = st["received"] * 100.0 / st["size"]
-                            print(f"[FILE] {st['name']} 进度：{prog:.1f}%")
+                            print(f"[FILE] {st['name']} progress：{prog:.1f}%")
                     except Exception as e:
-                        print("[FILE] FILE_CHUNK 异常：", e)
+                        print("[FILE] FILE_CHUNK error：", e)
                     continue
-                # FILE_END
+                # File end
+
                 if t == "FILE_END":
                     fid = payload.get("file_id")
                     st  = incoming_files.pop(fid, None)
                     if not st:
-                        print("[FILE] 未知的 file_id（END）。");  continue
+                        print("[FILE] unknow file_id（END）。");  continue
                     try:
                         st["fh"].close()
-                        print(f"[FILE] 接收完成：{st['name']}（共 {st['received']} / {st['size']} bytes）")
+                        print(f"[FILE] Receiving completed：{st['name']}（total {st['received']} / {st['size']} bytes）")
                     except Exception as e:
-                        print("[FILE] FILE_END 异常：", e)
+                        print("[FILE] FILE_END error：", e)
                     continue
 
                 
-                # ACK/ERROR 简洁输出
+                # ACK/ERROR concise output
+
                 if t in ("ACK", "ERROR"):
                     print(f"[SERVER] {t}: {payload}")
                     continue
 
-                # 兜底
+                # reveal all the details
+
                 print("[SERVER]", msg)
 
         except websockets.ConnectionClosed:
@@ -451,30 +489,31 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
             if line.strip() == "/quit":
                 await commands.do_quit()
                 print("Succesfully quit")
+                os._exit(0)
                 break
             elif line.strip() == "/list":
                 await commands.do_list(user_list)
             elif line.startswith("/tell "):
                 try:
                     _, uid, text = line.split(" ", 2)
-                    print(user_list)
                     await commands.do_tell(uid, text, user_list[uid]["pubkey"])
                 except ValueError:
-                    print("用法: /tell <user_id> <message>")
+                    print("usage: /tell <user_id> <message>")
             elif line.startswith("/file "):
                 try:
                     _, uid, path = line.split(" ", 2)
                     await commands.do_file(uid, path, user_list[uid]["pubkey"])
                 except ValueError:
-                    print("用法: /file <user_id> <path>")
+                    print("usage: /file <user_id> <path>")
             elif line.startswith("/all "):
                 await commands.do_all(line[5:])
             else:
-                print("未知命令：/list , /tell <user_id> <message> , /file <user_id> <path> , /all <message> , /quit")
+                print("unknow command：/list , /tell <user_id> <message> , /file <user_id> <path> , /all <message> , /quit")
 
     await asyncio.gather(listen_server(), user_input())
 
-# ====== 菜单主函数  ======
+# ====== Menu main function ======
+
 async def main():
     server_pubkey = load_server_pubkey()
     if server_pubkey is None:

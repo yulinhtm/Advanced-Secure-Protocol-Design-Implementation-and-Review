@@ -53,11 +53,14 @@ async def handle_user_hello(ws, message, db_conn, privkey, server_id, user_locat
         )
         db_conn.commit()
 
-    # 加入内存表
+    # Add to memory table
+
+
     user_locations[user_id] = "local"
     local_users[user_id] = ws
 
-    # 广播 USER_ADVERTISE
+    # Broadcast USER_ADVERTISE
+
     adv_payload = {"user_id": user_id, "server_id": server_id, "meta": meta}
     adv_msg = {
         "type": "USER_ADVERTISE",
@@ -71,7 +74,8 @@ async def handle_user_hello(ws, message, db_conn, privkey, server_id, user_locat
     for sid, link in servers.items():
         await link.send(json.dumps(adv_msg))
 
-    # 给客户端回 ACK
+    # Send ACK back to client
+
     ack_payload = {"status": "ok"}
     ack_msg = {
         "type": "ACK",

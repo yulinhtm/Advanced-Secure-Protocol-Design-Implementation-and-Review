@@ -11,7 +11,8 @@ from typing import Dict, Any, Tuple, Optional
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-# ========== RSA 基础 ==========
+# ========== RSA Base ==========
+
 
 def generate_rsa_keypair(bits: int = 4096) -> Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
     priv = rsa.generate_private_key(public_exponent=65537, key_size=bits)
@@ -40,7 +41,8 @@ def rsa_oaep_decrypt(private_key: rsa.RSAPrivateKey, ciphertext: bytes) -> bytes
     )
 
 
-# ========== 签名/验签 ==========
+# ========== Signature/Verification ==========
+
 
 def sign_payload(privkey: rsa.RSAPrivateKey, data: bytes) -> str:
     signature = privkey.sign(
@@ -81,7 +83,8 @@ def verify_json_signature(pubkey: rsa.RSAPublicKey, payload: Dict[str, Any], sig
     return verify_signature(pubkey, data, sig_b64)
 
 
-# ========== 公钥序列化 ==========
+# ========== Public key serialization ==========
+
 
 def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
     pub_der = pubkey.public_bytes(
@@ -92,12 +95,14 @@ def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
 
 
 def deserialize_publickey(pubkey_b64: str):
-    # 自动补齐 Base64 填充符 '='，防止 padding 错误
+    # Automatically complete the Base64 padding character '=' to prevent padding errors
+
     pad = '=' * (-len(pubkey_b64) % 4)
     der = base64.urlsafe_b64decode(pubkey_b64 + pad)
     return serialization.load_der_public_key(der)
 
-# ========== JSON 规范化 ==========
+# ========== JSON Normalization ==========
+
 
 def canonical_json(payload: Dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(',', ':'))
@@ -107,7 +112,8 @@ def extract_payload_and_signature(envelope: Dict[str, Any]) -> Tuple[Dict[str, A
     return envelope.get("payload", {}), envelope.get("sig", "")
 
 
-# ========== RSA Key 存取 ==========
+# ========== RSA Key Access ==========
+
 
 def save_rsa_keys_to_files(priv: rsa.RSAPrivateKey, pub: rsa.RSAPublicKey,
                            priv_path: str, pub_path: str, password: Optional[str] = None):
@@ -142,7 +148,8 @@ def load_rsa_keys_from_files(priv_path: str, pub_path: str, password: Optional[s
 
 
 
-# ========== 密码哈希 ==========
+# ========== Password Hash ==========
+
 
 def hash_password(password: str, salt: str) -> str:
     dk = hashlib.pbkdf2_hmac(
@@ -155,7 +162,8 @@ def hash_password(password: str, salt: str) -> str:
     return base64.urlsafe_b64encode(dk).decode('utf-8').rstrip('=')
 
 
-# ========== Payload 加/解密 ==========
+# ========== Payload encryption/decryption ==========
+
 
 def encrypt_payload_fields(fields: Dict[str, Any], server_pubkey: rsa.RSAPublicKey, max_len: int = 446) -> Dict[str, Any]:
     out = {}
@@ -189,12 +197,15 @@ def decrypt_payload_fields(enc_payload: Dict[str, Any], server_privkey: rsa.RSAP
 def create_ack_list_message(private_key: rsa.RSAPrivateKey, msg_ref: str,content, server_id: str, to_user: str| None = None) -> dict:
     
     # Canonicalize payload
+
     canonical_bytes = json.dumps(content, sort_keys=True, separators=(',', ':')).encode("utf-8")
     
     # Sign the payload
+
     signature_b64url = sign_payload(private_key, canonical_bytes)
     
     # Construct message
+
     message = {
         "type": "ACK",
         "from": server_id,
@@ -209,18 +220,22 @@ def create_ack_list_message(private_key: rsa.RSAPrivateKey, msg_ref: str,content
 def create_error_message(private_key: rsa.RSAPrivateKey, code: str, reason: str, server_id: str, to_user: str = "no_user_id") -> dict:
 
     # Build payload
+
     payload = {
         "code": code,
         "reason": reason
     }
     
     # Canonicalize payload
+
     canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
     
     # Sign the payload
+
     signature_b64url = sign_payload(private_key, canonical_bytes)
     
     # Construct message
+
     message = {
         "type": "ERROR",
         "from": server_id,
@@ -233,17 +248,21 @@ def create_error_message(private_key: rsa.RSAPrivateKey, code: str, reason: str,
 
 def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: str, to_user: str) -> dict:
     # Build payload
+
     payload = {
         "msg_ref": msg_ref
     }
     
     # Canonicalize payload
+
     canonical_bytes = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
     
     # Sign the payload
+
     signature_b64url = sign_payload(private_key, canonical_bytes)
     
     # Construct message
+
     message = {
         "type": "ACK",
         "from": server_id,
@@ -254,7 +273,8 @@ def create_ack_message(private_key: rsa.RSAPrivateKey, msg_ref: str, server_id: 
     
     return message
 
-# ====================== 验证密码是否强壮 ======================
+# ====================== Verify that the password is strong ======================
+
 
 def is_strong_password(password: str) -> bool:
     if len(password) < 12:
@@ -270,36 +290,31 @@ def is_strong_password(password: str) -> bool:
     return True
 
 
-# ====================== UUID5 生成 ======================
+# ====================== UUID5 generation ======================
 
-# 固定命名空间：请在全项目保持一致；不要随机生成
+
+# Fixed namespace: please keep it consistent throughout the project; do not generate it randomly
+
 NAMESPACE_USERID  = uuid.UUID("7b8f9f20-6d2a-47c1-9c58-1a5b9f2f3c0e")
 NAMESPACE_SERVER  = uuid.UUID("9c6d5b90-aaaa-4b1b-88d2-ff1122334455")
 
 def _normalize_username(name: str) -> str:
-    """
-    统一用户名：去首尾空格、压缩连续空白、转小写。
-    确保 'Alice' 与 ' alice  ' 生成同一 user_id。
-    """
+
     return re.sub(r"\s+", " ", name.strip().lower())
 
 def generate_user_id(username: str) -> str:
-    """
-    基于命名空间 + 规范化用户名的 UUID5。确定性且跨机器一致。
-    """
+
     norm = _normalize_username(username)
     return str(uuid.uuid5(NAMESPACE_USERID, norm))
 
 def generate_server_id(server_name: str) -> str:
-    """
-    基于命名空间 + server_name 的 UUID5。
-    这样同一个 server_name 始终生成相同的 Server ID。
-    """
+
     norm = server_name.strip().lower()
     return str(uuid.uuid5(NAMESPACE_SERVER, norm))
 
 
 # === base64url helpers ===
+
 def b64url_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode("utf-8").rstrip("=")
 
@@ -308,7 +323,8 @@ def b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + pad)
 
 
-# === serialize_publickey 保持返回 str；客户端不要 .decode() ===
+# === serialize_publickey keeps returning str; client does not need .decode() ===
+
 def serialize_publickey(pubkey: rsa.RSAPublicKey) -> str:
     pub_der = pubkey.public_bytes(
         encoding=serialization.Encoding.DER,
@@ -326,7 +342,8 @@ def deserialize_privatekey(privkey_str: str, password: str):
 
 
 
-# === salt + 私钥加密（客户端 register 用） ===
+# === salt + private key encryption (for client register) ===
+
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 def random_salt(n: int = 16) -> str:
@@ -346,7 +363,8 @@ def encrypt_private_key(priv: rsa.RSAPrivateKey, password: str, salt_b64: str) -
     return b64url_encode(pem)
 
 
-# --- AES-GCM helpers ---
+# ---AES-GCM helpers ---
+
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 def aes_gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes, aad: bytes | None = None) -> tuple[bytes, bytes]:
@@ -373,7 +391,8 @@ def b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + pad)
 
 
-# ====================== 工具函数 ======================    
+# ====================== Utility functions ======================    
+
 
 def int_ts_ms() -> int:
     return int(time.time() * 1000)

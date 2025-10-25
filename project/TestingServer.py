@@ -15,7 +15,7 @@ import crypto_utils as cu
 from server_handlers import ServerHandlers
 from typing import Dict
 
-# ===================== 配置 =====================
+# ===================== Configuration =====================
 HOST = "localhost"
 SERVER_PORT = "8765"
 SERVER_NAME = "server-1"
@@ -52,7 +52,7 @@ SERVER_NAME = args.name
 BOOTSTRAP_YAML = args.bootstrap
 SERVER_PASSWORD = args.password
 
-# ===================== 数据库 =====================
+# ===================== database =====================
 DB = "user.db"
 
 def init_db():
@@ -256,15 +256,15 @@ async def broadcast_server_announce(private_key, pubkey_str):
             uri = f"ws://{host}:{port}"
             print("Sending message to other server " + uri)
 
-            # ① 不要用 async with；手动建立长连接
+            #  Don’t use async with; manually establish a long connection
             ws = await websockets.connect(
                 uri,
-                ping_interval=15,   # 保活
+                ping_interval=15,   
                 ping_timeout=10,
                 close_timeout=5
             )
 
-            # （可选）把这条“拨出的长连接”存起来以便复用
+            # Save this "long dialed-out connection" for reuse
             servers[server_id] = ws
 
             payload_fields = {
@@ -289,7 +289,7 @@ async def broadcast_server_announce(private_key, pubkey_str):
             await ws.send(json.dumps(announce_msg))
             print(f"SERVER_ANNOUNCE sent to {server_id} at {host}:{port}")
 
-            # ② 在这条“拨出的连接”上收 ACK（注意：不要和别的协程同时在同一 ws 上 recv）
+            # Receive ACK on this "dial-out connection" (note: do not recv on the same ws with other coroutines at the same time)
             response_raw = await asyncio.wait_for(ws.recv(), timeout=5)
             response = json.loads(response_raw)
             payload_extracted, sig_extracted = cu.extract_payload_and_signature(response)
@@ -299,7 +299,7 @@ async def broadcast_server_announce(private_key, pubkey_str):
                 if response.get("type") == "ACK":
                     print("Server responded with ACK")
                     print("Server response:", payload_extracted)
-                    # 已经存过 servers[server_id] = ws，可继续复用
+                    # Servers[server_id] = ws has been saved and can be reused.
                 else:
                     print("Server response:", payload_extracted)
                     Success = False
@@ -307,13 +307,13 @@ async def broadcast_server_announce(private_key, pubkey_str):
                 print("Signature is INVALID")
                 Success = False
 
-            # ③ 不要在这里关闭 ws；要复用就留着
-            # 如果你不想复用，在这里主动关闭也行：await ws.close()
+            # Don't close ws here; keep it if you want to reuse it
+            # If you don't want to reuse, you can actively close it here: await ws.close()
 
         except Exception as e:
             print(f"Failed to send SERVER_ANNOUNCE to {server_id} at {host}:{port}: {e}")
             Success = False
-            # 失败就清理掉失效连接
+            # If it fails, clean up the dead connection.
             if servers.get(server_id) is not None:
                 try:
                     await servers[server_id].close()
@@ -333,14 +333,14 @@ def get_display_name(user_id: str) -> str:
     return row[0] if row and row[0] else user_id
 
 
-# ===================== WebSocket 发送统一封装 =====================
+# ===================== WebSocket sends unified encapsulation =====================
 async def ws_send(link, message_str: str):
     try:
         await link.send(message_str)
     except Exception:
         traceback.print_exc()
 
-# ===================== 载入 Server 密钥 & SERVER_ID =====================
+# ===================== Load Server Key & SERVER_ID =====================
 def load_server_keys(password):
     with open("ServerStorage/private_key.der", "rb") as f:
         password_bytes = password.encode("utf-8") if password is not None else None
@@ -349,14 +349,14 @@ def load_server_keys(password):
         pub = serialization.load_der_public_key(f.read())
     return priv, pub
 
-# 先初始化数据库
+# Initialize the database first
 init_db()
-# 加载密钥/ID
+# Load key/ID
 private_key, public_key = load_server_keys(SERVER_PASSWORD)
 SERVER_PASSWORD = None
 SERVER_ID = cu.generate_server_id(SERVER_NAME)
 
-# 实例化 handlers（处理 /list /tell /all /file）
+# Instantiate handlers (process /list /tell /all /file)
 handlers = ServerHandlers(
     ws_send_func=ws_send,
     local_users=local_users,
@@ -368,7 +368,7 @@ handlers = ServerHandlers(
     resolve_username=get_display_name,
 )
 
-# ===================== ACK / ERROR 生成（带签名） =====================
+# ===================== ACK /ERROR generated (with signature） =====================
 def create_ack(to_user: str, msg_ref: str):
     payload = {"msg_ref": msg_ref, "status": "ok"}
     env = {
@@ -394,7 +394,7 @@ def create_error(to_user: str, code: str, detail: str):
     return env
 
 
-# ===================== 广播：某用户上线 =====================
+# ===================== Broadcast: A user is online =====================
 async def broadcast_user_online(meta: str, user_id: str, pubkey):
     payload = {
         "meta": meta,
@@ -419,7 +419,7 @@ async def broadcast_user_online(meta: str, user_id: str, pubkey):
 
     print("Have already broadcast user online")
 
-# ===================== 广播：某用户下线（只广播用户名）=====================
+# ===================== Broadcast: A user is offline (only broadcast user name)=====================
 async def broadcast_user_offline_username(user_id: str):
     payload = {
         "user_id": user_id,
@@ -526,7 +526,7 @@ async def user_remove(the_user_id):
             await ws.send(json.dumps(advertise_msg))
         
 
-# ===================== 连接处理 =====================
+# ===================== connection handling =====================
 async def handle_connection(ws):
     try:
         async for raw in ws:
@@ -539,7 +539,7 @@ async def handle_connection(ws):
 
             mtype = msg.get("type")
 
-            # ---------------- 注册 ----------------
+            # ---------------- register ----------------
             if mtype == "USER_REGISTER":
                 user_id = msg.get("from")
                 enc_payload = msg.get("payload", {})
@@ -569,12 +569,12 @@ async def handle_connection(ws):
                     await ws.send(json.dumps(create_error(user_id, "NAME_IN_USE", "username or user_id already exists")))
                     continue
 
-                # 入库
+                # Warehouse
                 hashed = cu.hash_password(plain_password, salt)
                 meta = {"display_name": display_name}
                 add_user(user_id, pubkey, privkey_store, hashed, salt, meta, version=1)
 
-                # 内存登记
+                # Memory registration
                 local_users[user_id] = ws
                 user_locations[user_id] = "local"
 
@@ -637,7 +637,7 @@ async def handle_connection(ws):
 
                 print(f"Server {announcing_server_id} registered/updated successfully")
 
-            # ---------------- 登录 ----------------
+            # ---------------- Log in ----------------
             elif mtype == "USER_HELLO":
                 user_id = msg.get("from")
                 enc_payload = msg.get("payload", {})
@@ -665,7 +665,7 @@ async def handle_connection(ws):
                     await ws.send(json.dumps(create_error(user_id, "NAME_IN_USE", "user already logged in")))
                     continue
 
-                # 登记在线
+                # Register online
                 local_users[user_id] = ws
                 user_locations[user_id] = "local"
 
@@ -858,7 +858,7 @@ async def handle_connection(ws):
 
 
 
-            # ---------------- 命令分发 ----------------
+            # ---------------- command distribution ----------------
             elif mtype == "LIST_REQUEST":
                 await handlers.handle_list_request(msg, ws)
 
@@ -886,7 +886,7 @@ async def handle_connection(ws):
     except Exception:
         traceback.print_exc()
 
-# ===================== 启动 =====================
+# ===================== start up =====================
 async def main():
     success = await (bootstrap_from_yaml())
     print("Success or Not:", success)

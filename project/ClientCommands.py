@@ -60,8 +60,17 @@ class ClientCommands:
 
     # ---------------- /list ----------------
     async def do_list(self, user_list):
-        print(user_list)
-
+        if isinstance(user_list, dict):
+            for user_id, info in user_list.items():
+                meta = info.get("meta", {})
+                print(f"User ID: {user_id}, Meta: {meta}")
+        elif isinstance(user_list, list):
+            for user in user_list:
+                uid = user.get("user_id")
+                meta = user.get("meta", {})
+                print(f"User ID: {uid}, Meta: {meta}")
+        else:
+            print("Unexpected list format:", user_list)
     # ---------------- /tell (end-to-end) ----------------
     async def do_tell(self, recipient_id: str, plaintext: str, recipient_pub_str=None):
 
@@ -69,12 +78,12 @@ class ClientCommands:
             raise ValueError("recipient public key unavailable")
         recipient_pub = cu.deserialize_publickey(recipient_pub_str)
 
-        # 加密正文
+        # Encrypted text
         ciphertext = cu.rsa_oaep_encrypt(recipient_pub, plaintext.encode("utf-8"))
-        # 用统一工具做 base64url
+        # Use unified tools base64url
         ciphertext_b64 = cu.b64url_encode(ciphertext)
 
-        # 用这些值做签名（并随 payload 一起发送，避免被服务器改 envelope 影响）
+        # Sign with these values（And sent together with the payload to avoid being affected by the server changing the envelope）
         sig_from = self.user_id
         sig_to   = recipient_id
         sig_ts   = _now_ms()
@@ -114,7 +123,7 @@ class ClientCommands:
         if not os.path.exists(filepath):
             raise FileNotFoundError(filepath)
 
-        # 拿接收方公钥
+        # Get the receiver’s public key
         if recipient_pub is None:
             raise ValueError("recipient public key unavailable")
 
@@ -122,13 +131,13 @@ class ClientCommands:
         name    = os.path.basename(filepath)
         size    = os.path.getsize(filepath)
 
-        # --- 1) 发送 FILE_START：清单 + 签名 ---
+        # --- 1) Send FILE_START: Manifest + Signature ---
         manifest = {
             "file_id": file_id,
             "name":    name,
             "size":    size,
-            "mode":    "dm-rsa",           # 标注模式，便于调试
-            "chunk":   RSA_PLAINTEXT_LIMIT # 告知对端用多大分块（明文）
+            "mode":    "dm-rsa",           # Annotation mode for easy debugging
+            "chunk":   RSA_PLAINTEXT_LIMIT # Tell the peer how many chunks to use (plain text)
         }
         manifest_sig = cu.sign_payload(self.privkey, cu.canonical_json(manifest).encode("utf-8"))
 
@@ -145,7 +154,7 @@ class ClientCommands:
         }
         await self.ws.send(json.dumps(start_msg))
 
-        # --- 2) 按 RSA 上限分块，加密后发送 FILE_CHUNK ---
+        # --- 2) Divide into blocks according to the upper limit of RSA, send FILE_CHUNK after encryption ---
         sent = 0
         with open(filepath, "rb") as f:
             idx = 0
@@ -157,7 +166,7 @@ class ClientCommands:
                 ciph     = cu.rsa_oaep_encrypt(recipient_pub, plain)
                 ciph_b64 = cu.b64url_encode(ciph)
 
-                # 对块做签名：对 {file_id,index,ciphertext} 的 canonical JSON 做 RSASSA-PSS
+                # Sign blocks: do RSASSA-PSS on canonical JSON of {file_id,index,ciphertext}
                 chunk_info = {"file_id": file_id, "index": idx, "ciphertext": ciph_b64}
                 chunk_sig  = cu.sign_payload(self.privkey, cu.canonical_json(chunk_info).encode("utf-8"))
 
@@ -175,7 +184,7 @@ class ClientCommands:
                 sent += len(plain)
                 idx  += 1
 
-        # --- 发送 FILE_END ---
+        # --- send FILE_END ---
         end_msg = {
             "type": "FILE_END",
             "from": self.user_id,
@@ -191,7 +200,7 @@ class ClientCommands:
         ts = cu.int_ts_ms()
         from_uid = self.user_id
 
-        # 内容签名：SHA256(text || from || ts)
+        # Content signature：SHA256(text || from || ts)
         dg = hashlib.sha256((text + from_uid + str(ts)).encode("utf-8")).digest()
         content_sig = cu.sign_payload(self.privkey, dg)
 
@@ -212,7 +221,7 @@ class ClientCommands:
         }
 
         await self.ws.send(json.dumps(env))
-        print(f"[/all] 已广播到 {group_id}（明文+签名）")
+        print(f"[/all] has been broadcast to {group_id}（Plain text + signature）")
 
     async def do_quit(self) -> None:
 
@@ -228,7 +237,7 @@ class ClientCommands:
         except Exception:
             pass
         try:
-            await asyncio.sleep(0.1)   # 可选：给服务端处理时间
+            await asyncio.sleep(0.1)   # Optional: Give the server processing time
         except Exception:
             pass
 

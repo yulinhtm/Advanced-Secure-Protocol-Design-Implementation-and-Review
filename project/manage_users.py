@@ -31,7 +31,9 @@ def generate_key_pair():
     return priv, priv.public_key()
 
 def store_user(conn, user_id, privkey, pubkey, pake_password, meta):
-    # 私钥存储（PEM base64）
+    # Private key storage (PEM base64)
+
+
     priv_pem = privkey.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -39,7 +41,8 @@ def store_user(conn, user_id, privkey, pubkey, pake_password, meta):
     )
     priv_b64 = base64.urlsafe_b64encode(priv_pem).decode("utf-8").rstrip("=")
 
-    # 公钥 DER → base64url
+    # public key DER → base64url
+
     pub_der = pubkey.public_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -53,7 +56,8 @@ def store_user(conn, user_id, privkey, pubkey, pake_password, meta):
     )
     conn.commit()
 
-    # 本地保存
+    # Save locally
+
     os.makedirs(STORAGE_DIR, exist_ok=True)
     with open(os.path.join(STORAGE_DIR, f"{user_id}.priv"), "w") as f:
         f.write(priv_b64)

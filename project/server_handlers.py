@@ -13,8 +13,11 @@ class ServerHandlers:
     def __init__(self, ws_send_func, local_users, user_locations, servers, server_addrs, privkey, server_id, resolve_username=None):
         self.ws_send = ws_send_func
         self.local_users = local_users        # user_id -> ws
+
         self.user_locations = user_locations  # user_id -> "local" or server_id
+
         self.servers = servers                # server_id -> ws
+
         self.server_addrs = server_addrs
         self.privkey = privkey
         self.server_id = server_id
@@ -52,7 +55,8 @@ class ServerHandlers:
         }
         await self.ws_send(client_link, json.dumps(err))
 
-    # ---------- /list ----------
+    # ----------/list ----------
+
     async def handle_list_request(self, envelope, client_link):
         requester = envelope.get("from")
         users = sorted([uid for uid, loc in self.user_locations.items() if loc is not None])
@@ -67,7 +71,8 @@ class ServerHandlers:
         }
         await self.ws_send(client_link, json.dumps(resp))
 
-    # ---------- /tell ----------
+    # ----------/tell ----------
+
     async def handle_msg_direct(self, envelope, client_link, server_addrs):
         sender_id    = envelope.get("from")
         recipient = envelope.get("to")
@@ -77,11 +82,13 @@ class ServerHandlers:
             await self._send_error(client_link, sender_id, "USER_NOT_FOUND", f"{recipient} not found")
             return
 
-        # 关键：透传原 payload（包含 sig_from/sig_to/sig_ts 等），并补充 sender 字段
+        # Key: Transparently transmit the original payload (including sig_from/sig_to/sig_ts, etc.), and add the sender field
+
         server_payload = dict(payload)
         display_name = self.resolve_username(sender_id) if self.resolve_username else sender_id
         server_payload["sender"] = display_name
         # print("[DEBUG server_payload]\n" + json.dumps(server_payload, indent=2))
+
 
         if self.user_locations[recipient] == "local":
             ud = {
@@ -107,7 +114,8 @@ class ServerHandlers:
 
 
 
-    # ---------- /all (public channel) ----------
+    # ----------/all (public channel) ----------
+
     async def handle_msg_public(self, envelope, client_link, server_addrs):
         sender  = envelope.get("from")
         ts      = envelope.get("ts")
@@ -149,6 +157,7 @@ class ServerHandlers:
                     "type": "SERVER_DELIVER",
                     "from": self.server_id,
                     "to":   loc,  # server_id for routing
+
                     "ts":   self._now_ts(),
                     "payload": per_user_payload,
                 }
@@ -156,7 +165,8 @@ class ServerHandlers:
                 await self._send_to_server(loc, sd, server_addrs)
 
 
-    # ---------- /file ----------
+    # ----------/file ----------
+
     async def handle_file_transfer(self, envelope, client_link, server_addrs):
         sender = envelope.get("from")
         recipient = envelope.get("to")
@@ -166,7 +176,8 @@ class ServerHandlers:
             await self._send_error(client_link, sender, "USER_NOT_FOUND", f"{recipient} not found")
             return
 
-        # 转发时补上 sender（保留 manifest_sig / chunk_sig）
+        # Add sender when forwarding (retain manifest_sig /chunk_sig)
+
         display = self.resolve_username(sender) if self.resolve_username else sender
         fwd_payload = dict(payload)
         fwd_payload["sender"] = display
@@ -175,7 +186,8 @@ class ServerHandlers:
             fd = {
                 "type": envelope["type"],
                 "from": self.server_id,
-                "to": recipient,                      # 本地用户
+                "to": recipient,                      # local user
+
                 "ts": self._now_ts(),
                 "payload": fwd_payload,
                 "sig": self._sign_payload(fwd_payload),
@@ -185,11 +197,13 @@ class ServerHandlers:
             sd = {
                 "type": envelope["type"],
                 "from": self.server_id,
-                "to": recipient,                      # ★ 关键：跨服时也用“目标用户ID”！
+                "to": recipient,                      # ★ Key: Also use the "target user ID" when crossing servers!
+
                 "ts": self._now_ts(),
                 "payload": fwd_payload,
                 "sig": self._sign_payload(fwd_payload),
             }
-            # 通过已建立的对端服务器长连发送（用 server_id 选路，但 envelope.to 仍是用户ID）
+            # Send a long connection through the established peer server (use server_id to select the route, but envelope.to is still the user ID)
+
             await self._send_to_server(self.user_locations[recipient], sd, server_addrs)
 
