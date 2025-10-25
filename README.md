@@ -13,6 +13,7 @@ Youqing Fu a1981355
 
 Mo Yang a1932039
 
+Compilation environment: Python 3 or above
 Network protocol: Websocket
 Encrytion: RSA
 public channel
