@@ -1,7 +1,10 @@
-
 """
-ServerHandlers: handle LIST_REQUEST, MSG_DIRECT, MSG_PUBLIC_CHANNEL, FILE_*.
-This version injects 'sender' into forwarded public messages and preserves chunk_sig.
+Group 20:
+Jiahui Wang a1822691
+Yuxuan Wu a1898143
+ShunChit Yu a1880719
+Youqing Fu a1981355
+Mo Yang a1932039
 """
 
 import json, time

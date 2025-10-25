@@ -1,3 +1,12 @@
+"""
+Group 20:
+Jiahui Wang a1822691
+Yuxuan Wu a1898143
+ShunChit Yu a1880719
+Youqing Fu a1981355
+Mo Yang a1932039
+"""
+
 import asyncio
 import websockets
 import json
