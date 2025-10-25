@@ -126,6 +126,7 @@ async def register(ws, username, password, server_pubkey):
             print("Server responded with ACK")
             SERVER_ID = response.get("from")
             user_list = response.get("payload")
+            print(user_list)
             safe_filename = hashlib.sha256(username.encode()).hexdigest()
             cu.save_rsa_keys_to_files(priv, pub, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
         else:
@@ -142,7 +143,7 @@ async def register(ws, username, password, server_pubkey):
 # ====== 登录 ======
 async def login(ws, username: str, password: str, server_pubkey):
     global SERVER_ID, user_list 
-    user_id = cu.generate_user_id(username) 
+    user_id = cu.generate_user_id(username)
     # 尝试加载已有密钥；没有就新生成
     priv, pub = try_load_keypair(username, password)
     newClient = False
@@ -177,6 +178,7 @@ async def login(ws, username: str, password: str, server_pubkey):
             print("Server responded with ACK")
             SERVER_ID = response.get("from")
             user_list = response.get("payload")
+            print(user_list)
             if newClient:
                 safe_filename = hashlib.sha256(username.encode()).hexdigest()
                 cu.save_rsa_keys_to_files(priv, pub, "ClientStorage/"+safe_filename+"_private_key.der", "ClientStorage/"+safe_filename+"_public_key.der", password)
@@ -197,7 +199,7 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
     except TypeError:
         commands = ClientCommands(ws=ws, user_id=user_id, username=username)
 
-    print("Ready. Commands: /list , /tell <user_id> <message> , /all <message> , /file <user_id> <path>")
+    print("Ready. Commands: /list , /tell <user_id> <message> , /all <message> , /file <user_id> <path> , /quit")
     incoming_files = {}  # file_id -> {"sender_pub","name","size","fh","received","dir"}
     os.makedirs("Downloads", exist_ok=True)
     async def listen_server():
@@ -448,6 +450,7 @@ async def run_shell(ws, username: str, private_key, server_pubkey):
             line = await loop.run_in_executor(None, input, "> ")
             if line.strip() == "/quit":
                 await commands.do_quit()
+                print("Succesfully quit")
                 break
             elif line.strip() == "/list":
                 await commands.do_list(user_list)
