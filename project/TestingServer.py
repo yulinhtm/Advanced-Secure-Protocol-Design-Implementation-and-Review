@@ -40,6 +40,7 @@ def parse_args():
     p.add_argument("--port", type=int, default=int(os.getenv("SRV_PORT", "8765")))
     p.add_argument("--name", default=os.getenv("SRV_NAME", "server-1"))
     p.add_argument("--bootstrap", default=os.getenv("BOOTSTRAP_YAML", "bootstrap_servers.yaml"))
+    p.add_argument("--password", default=os.getenv(""))
     return p.parse_args()
 
 args = parse_args()
@@ -49,6 +50,7 @@ SERVER_ADDRESS = args.addr
 SERVER_PORT = str(args.port)      # keep type consistent with your code
 SERVER_NAME = args.name
 BOOTSTRAP_YAML = args.bootstrap
+SERVER_PASSWORD = args.password
 
 # ===================== 数据库 =====================
 DB = "user.db"
@@ -339,9 +341,10 @@ async def ws_send(link, message_str: str):
         traceback.print_exc()
 
 # ===================== 载入 Server 密钥 & SERVER_ID =====================
-def load_server_keys():
+def load_server_keys(password):
     with open("ServerStorage/private_key.der", "rb") as f:
-        priv = serialization.load_der_private_key(f.read(), password=b"my-password")
+        password_bytes = password.encode("utf-8") if password is not None else None
+        priv = serialization.load_der_private_key(f.read(), password=password_bytes)
     with open("ServerStorage/public_key.der", "rb") as f:
         pub = serialization.load_der_public_key(f.read())
     return priv, pub
@@ -349,7 +352,8 @@ def load_server_keys():
 # 先初始化数据库
 init_db()
 # 加载密钥/ID
-private_key, public_key = load_server_keys()
+private_key, public_key = load_server_keys(SERVER_PASSWORD)
+SERVER_PASSWORD = None
 SERVER_ID = cu.generate_server_id(SERVER_NAME)
 
 # 实例化 handlers（处理 /list /tell /all /file）
@@ -669,6 +673,14 @@ async def handle_connection(ws):
                 advertising_server_id = msg.get("from")
                 payload = msg.get("payload", {})
                 pubkey = server_pubkeys.get(advertising_server_id)
+
+                if pubkey is not None:
+                    print("Found pubkey:", pubkey)
+                else:
+                    print("Server ID not found")
+                    error_message = cu.create_error_message(private_key, "SERVER_NOT_REG", "Unknown server request", SERVER_ID, advertising_server_id)
+                    await ws.send(json.dumps(error_message))
+                    continue
 
                 if not payload:
                     error_message = cu.create_error_message(private_key, "NO_PAYLOAD", "There is no payload in message", SERVER_ID, advertising_server_id)
