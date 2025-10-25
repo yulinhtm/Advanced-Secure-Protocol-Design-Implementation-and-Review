@@ -18,7 +18,7 @@ Encrytion: RSA
 public channel
 Json file Style: SOCP(read SOCP V1.3.pdf for more details)
 
-Password for server is : "my-password"
+Password for server is : my-password (for easy to access onluy. The password will be changed to a more complicated one in real application.)
 
 file(all system file is inside the project folder):
 The system is vonsist of 3 perts(Introducer, client and server)
