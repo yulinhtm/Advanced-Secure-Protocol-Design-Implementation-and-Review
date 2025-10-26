@@ -51,8 +51,8 @@ Introducer -> server -> client
 Example command to run the programe:
 python Introducer.py --host 127.0.0.1 --port 5001
 
-python TestingServer.py --host localhost --addr 127.0.0.1 --port 8765 --name server-1
-python TestingServer.py --host localhost --addr 127.0.0.1 --port 8766 --name server-2
+python TestingServer.py --host localhost --addr 127.0.0.1 --port 8765 --name server-1 --password my-password
+python TestingServer.py --host localhost --addr 127.0.0.1 --port 8766 --name server-2 --password my-password
 
 python TestingClient.py --url ws://localhost:8765
 python TestingClient.py --url ws://localhost:8766
